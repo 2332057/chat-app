@@ -1,0 +1,14 @@
+.chat-form {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  position: sticky;
+  bottom: .5rem;
+  margin: 1rem 0 .5rem;
+  padding: 1rem;
+  background: #fff;
+  border-radius: .5rem;
+}
+.chat-form textarea {
+  width: 100%;
+}

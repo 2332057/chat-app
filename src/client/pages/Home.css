@@ -1,0 +1,22 @@
+.home {
+  background: linear-gradient(180deg, #f0f0f0 0%, #ffa0a0 100%);
+}
+
+.split {
+  display: flex;
+  gap: .5rem;
+  padding: .5rem;
+  max-height: 500px;
+}
+.note, .chat {
+  padding: 1rem;
+  margin: 0 auto;
+  border: 1px solid #ccc;
+  border-radius: 0.5rem;
+  overflow-y: auto;
+  flex: 1 1 300px;
+}
+.note {
+}
+.chat {
+}

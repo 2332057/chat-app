@@ -1,0 +1,26 @@
+{
+  "name": "app",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "$npm_execpath run build && vite preview",
+    "deploy": "$npm_execpath run build && wrangler deploy",
+    "cf-typegen": "wrangler types --env-interface CloudflareBindings"
+  },
+  "dependencies": {
+    "hono": "^4.12.23",
+    "openai": "^6.39.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "react-router-dom": "^7.15.1"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.2.3",
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
+    "vite": "^6.3.5",
+    "vite-ssr-components": "^0.6.1",
+    "wrangler": "^4.17.0"
+  }
+}

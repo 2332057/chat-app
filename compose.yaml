@@ -1,0 +1,15 @@
+services:
+  app:
+    # build: .
+    image: node:24-alpine
+    ports:
+      - "3000:3000"
+      - "5173:5173"
+    volumes:
+      # ローカルのディレクトリをコンテナの/appに同期
+      - .:/app
+      # コンテナ内のnode_modulesをローカルで上書きしないように保護
+      - /app/node_modules
+    command: sh -c "cd /app && npm install && npm run dev --host"
+    environment:
+      - NODE_ENV=development
