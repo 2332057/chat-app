@@ -1,7 +1,5 @@
 import { Hono } from 'hono'
 import OpenAI from 'openai'
-import { Script } from 'vite-ssr-components/hono'
-import { renderer } from './renderer'
 import { SimpleChatMessageType } from './types/chat'
 
 type Bindings = {
@@ -10,15 +8,22 @@ type Bindings = {
 
 const app = new Hono<{ Bindings: Bindings }>()
 
-app.use(renderer)
-
 app.get('*', (c) => {
-  return c.render(
-    <>
-      <div id="root"></div>
-      <Script src="/src/client/main.tsx" />
-    </>
-  )
+  return c.html(`
+    <!doctype html>
+    <html lang="ja">
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>学習支援システム</title>
+        <link rel="stylesheet" href="/src/style.css" />
+      </head>
+      <body>
+        <div id="root"></div>
+        <script type="module" src="/src/client/main.tsx"></script>
+      </body>
+    </html>
+  `);
 })
 
 app.post('/api/chat', async (c) => {

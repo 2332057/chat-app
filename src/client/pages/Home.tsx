@@ -82,6 +82,10 @@ const saveState = (state: PersistedStateV1Type) => {
 export default function Home() {
   const hydrated = useMemo(() => loadState(), [])
 
+  useEffect(() => {
+    document.title = 'チャット | 学習支援システム'
+  }, [])
+
   const [threads, setThreads] = useState<ChatThreadType[]>(() => hydrated?.threads ?? [createInitialThread()])
   const [activeThreadId, setActiveThreadId] = useState<string>(() => hydrated?.activeThreadId ?? (hydrated?.threads?.[0]?.id ?? threads[0]!.id))
   const [draft, setDraft] = useState('')
@@ -198,25 +202,26 @@ export default function Home() {
 
   return (
     <div className="home">
-      <div className="selecter">
-        <label className="sr-only" htmlFor="thread">チャット選択</label>
-        <select
-          id="thread"
-          value={activeThreadId}
-          onChange={(e) => setActiveThreadId(e.target.value)}
-          disabled={busy}
-        >
-          {threads.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.title}
-            </option>
-          ))}
-        </select>
-        <button type="button" onClick={createThread} disabled={busy}>新規</button>
-      </div>
-
       <div className="split">
         <div className="note">
+
+          <div className="selecter">
+            <label className="sr-only" htmlFor="thread">チャット選択</label>
+            <select
+              id="thread"
+              value={activeThreadId}
+              onChange={(e) => setActiveThreadId(e.target.value)}
+              disabled={busy}
+            >
+              {threads.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.title}
+                </option>
+              ))}
+            </select>
+            <button type="button" onClick={createThread} disabled={busy}>新規</button>
+          </div>
+
           <h2>ノート</h2>
           <p>LLMが学んだ内容をノートに記述します。</p>
         </div>

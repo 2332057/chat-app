@@ -9,9 +9,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <main>
         {children}
       </main>
-      <footer>
-        <p>&copy; 2026 学習支援システム</p>
-      </footer>
     </>
   )
 }
