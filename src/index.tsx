@@ -1,4 +1,7 @@
+/** @jsxImportSource hono/jsx */
+
 import { Hono } from 'hono'
+import { Link, Script, ViteClient } from 'vite-ssr-components/hono'
 import OpenAI from 'openai'
 import { SimpleChatMessageType } from './types/chat'
 import type { D1Database } from '@cloudflare/workers-types'
@@ -65,24 +68,6 @@ app.get('/api/threads/:id', async (c) => {
   }
 })
 
-app.get('*', (c) => {
-  return c.html(`
-    <!doctype html>
-    <html lang="ja">
-      <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>学習支援システム</title>
-        <link rel="stylesheet" href="/src/style.css" />
-      </head>
-      <body>
-        <div id="root"></div>
-        <script type="module" src="/src/client/main.tsx"></script>
-      </body>
-    </html>
-  `);
-})
-
 app.post('/api/chat', async (c) => {
   const apiKey = c.env.OPENAI_API_KEY
 
@@ -125,6 +110,28 @@ app.post('/api/chat', async (c) => {
   }
 
   return c.json({ reply })
+})
+
+app.get('*', (c) => {
+  if (c.req.path.startsWith('/api')) {
+    return c.notFound()
+  }
+
+  return c.html(
+    <html lang="ja">
+      <head>
+        <meta charSet="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>学習支援システム</title>
+        <ViteClient />
+        <Script src="/src/client/main.tsx" />
+        <Link href="/src/style.css" rel="stylesheet" />
+      </head>
+      <body>
+        <div id="root"></div>
+      </body>
+    </html>
+  )
 })
 
 export default app

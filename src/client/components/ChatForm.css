@@ -9,6 +9,7 @@
   background: #fff;
   border-radius: .5rem;
   box-shadow: #0000003b 0px 1px 5px 3px;
+  height: 90px;
 }
 .chat-form textarea {
   width: 100%;
