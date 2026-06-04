@@ -1,12 +1,69 @@
 import { Hono } from 'hono'
 import OpenAI from 'openai'
 import { SimpleChatMessageType } from './types/chat'
+import type { D1Database } from '@cloudflare/workers-types'
 
 type Bindings = {
   OPENAI_API_KEY: string
+  DB: D1Database
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
+
+app.get('/api/threads', async (c) => {
+  try {
+    const { results } = await c.env.DB.prepare('SELECT id, title FROM threads ORDER BY updated_at DESC').all()
+    return c.json({ threads: results })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: 'スレッドの取得に失敗しました。' }, 500)
+  }
+})
+
+app.post('/api/threads', async (c) => {
+  try {
+    const body = await c.req.json<{ title?: string }>().catch(() => null)
+    const title = body?.title?.trim() || '新規チャット'
+
+    // FIXME: use user_id(1), later implement authentication and get user_id from auth context
+    const userId = 1
+
+    const { results } = await c.env.DB.prepare(
+      'INSERT INTO threads (user_id, title) VALUES (?, ?) RETURNING *'
+    ).bind(userId, title).all()
+
+    return c.json({ thread: results[0] }, 201)
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: 'スレッドの作成に失敗しました。' }, 500)
+  }
+})
+
+app.get('/api/threads/:id', async (c) => {
+  try {
+    const threadId = c.req.param('id')
+
+    const [threadResult, messagesResult, notesResult] = await c.env.DB.batch([
+      c.env.DB.prepare('SELECT * FROM threads WHERE id = ?').bind(threadId),
+      c.env.DB.prepare('SELECT * FROM messages WHERE thread_id = ? ORDER BY created_at ASC').bind(threadId),
+      c.env.DB.prepare('SELECT * FROM notes WHERE thread_id = ? ORDER BY created_at ASC').bind(threadId),
+    ])
+
+    const thread = threadResult.results[0]
+    if (!thread) {
+      return c.json({ error: 'スレッドが見つかりません。' }, 404)
+    }
+
+    return c.json({
+      thread,
+      messages: messagesResult.results,
+      notes: notesResult.results,
+    })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: 'スレッド詳細の取得に失敗しました。' }, 500)
+  }
+})
 
 app.get('*', (c) => {
   return c.html(`
