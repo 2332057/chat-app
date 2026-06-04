@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS threads (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL,
   title TEXT NOT NULL,
+  last_response_id TEXT,
+  memory TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id)
@@ -23,6 +25,7 @@ CREATE TABLE IF NOT EXISTS messages (
   content TEXT NOT NULL,
   model TEXT,
   response_id TEXT,
+  raw_response TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (thread_id) REFERENCES threads(id)

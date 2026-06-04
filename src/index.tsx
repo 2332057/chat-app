@@ -13,6 +13,9 @@ type Bindings = {
 
 const app = new Hono<{ Bindings: Bindings }>()
 
+const MODEL = 'gpt-5-nano-2025-08-07'
+const SYSTEM_INSTRUCTIONS = 'You are a concise, helpful chat assistant.'
+
 app.get('/api/threads', async (c) => {
   try {
     const { results } = await c.env.DB.prepare('SELECT id, title FROM threads ORDER BY updated_at DESC').all()
@@ -68,6 +71,31 @@ app.get('/api/threads/:id', async (c) => {
   }
 })
 
+app.patch('/api/threads/:id', async (c) => {
+  try {
+    const threadId = c.req.param('id')
+    const body = await c.req.json<{ title?: string }>().catch(() => null)
+    const title = body?.title?.trim()
+
+    if (!title) {
+      return c.json({ error: 'title is required.' }, 400)
+    }
+
+    const { results } = await c.env.DB.prepare(
+      'UPDATE threads SET title = ? WHERE id = ? RETURNING *'
+    ).bind(title, threadId).all()
+
+    if (results.length === 0) {
+      return c.json({ error: 'スレッドが見つかりません。' }, 404)
+    }
+
+    return c.json({ thread: results[0] })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: 'タイトルの更新に失敗しました。' }, 500)
+  }
+})
+
 app.post('/api/chat', async (c) => {
   const apiKey = c.env.OPENAI_API_KEY
 
@@ -75,38 +103,51 @@ app.post('/api/chat', async (c) => {
     return c.json({ error: 'OPENAI_API_KEY is not set.' }, 500)
   }
 
-  const body = await c.req.json<{ messages?: SimpleChatMessageType[] }>().catch(() => null)
+  const body = await c.req.json<{ threadId?: string | number; content?: string }>().catch(() => null)
+  const threadId = body?.threadId
+  const content = body?.content?.trim()
 
-  if (!body || !Array.isArray(body.messages) || body.messages.length === 0) {
-    return c.json({ error: 'messages is required.' }, 400)
+  if (!threadId) {
+    return c.json({ error: 'threadId is required.' }, 400)
+  }
+  if (!content) {
+    return c.json({ error: 'content is required.' }, 400)
   }
 
-  const messages = body.messages
-    .filter((message) => message && (message.role === 'user' || message.role === 'assistant') && typeof message.content === 'string')
-    .map((message) => ({
-      role: message.role,
-      content: message.content.trim(),
-    }))
-    .filter((message) => message.content.length > 0)
-    .slice(-20)
-
-  if (messages.length === 0) {
-    return c.json({ error: 'messages is empty.' }, 400)
+  const thread = await c.env.DB.prepare('SELECT id, last_response_id FROM threads WHERE id = ?').bind(threadId).first<{ id: string | number, last_response_id: string | null }>()
+  if (!thread) {
+    return c.json({ error: 'thread not found' }, 404)
   }
+
+  const previousResponseId = thread.last_response_id
+
+  await c.env.DB.prepare(
+    'INSERT INTO messages (thread_id, role, content) VALUES (?, ?, ?)'
+  ).bind(threadId, 'user', content).run()
 
   const client = new OpenAI({ apiKey })
-  const completion = await client.chat.completions.create({
-    model: 'gpt-5-nano-2025-08-07',
-    messages: [
-      { role: 'system', content: 'You are a concise, helpful chat assistant.' },
-      ...messages,
-    ],
+  const response = await (client as any).responses.create({
+    model: MODEL,
+    instructions: SYSTEM_INSTRUCTIONS,
+    input: content,
+    previous_response_id: previousResponseId ?? undefined,
   })
 
-  const reply = completion.choices[0]?.message?.content?.trim()
+  const reply = response.output_text
+  const responseId = response.id || null
 
-  if (!reply) {
+  if (!response) {
     return c.json({ error: 'OpenAI returned an empty reply.' }, 502)
+  }
+
+  await c.env.DB.prepare(
+    'INSERT INTO messages (thread_id, role, content, response_id, model, raw_response) VALUES (?, ?, ?, ?, ?, ?)'
+  ).bind(threadId, 'assistant', reply, responseId, MODEL, JSON.stringify(response)).run()
+
+  if (responseId) {
+    await c.env.DB.prepare(
+      'UPDATE threads SET last_response_id = ? WHERE id = ?'
+    ).bind(responseId, threadId).run()
   }
 
   return c.json({ reply })
