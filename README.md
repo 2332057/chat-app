@@ -1,12 +1,14 @@
-```txt
-npm install
-npm run dev
-```
+# 学習者が他人に教えることで学習効果を高めるシステムの構築
 
-```txt
-npm run deploy
-```
-## OpenAI Key
+Keywords: LBT, TA
+
+## System
+
+db scheme:
+
+![scheme](./assets/scheme.png)
+
+## Set Up
 
 Set `OPENAI_API_KEY` as an environment binding before running the chat.
 
@@ -16,26 +18,13 @@ For local development, create a `.dev.vars` file with:
 OPENAI_API_KEY=your_api_key_here
 ```
 
-For deployment, store the same value as a Wrangler secret:
+Create db:
 
-```txt
-wrangler secret put OPENAI_API_KEY
+```sh
+npx wrangler d1 migrations apply chat-app --local
 ```
 
-[For generating/synchronizing types based on your Worker configuration run](https://developers.cloudflare.com/workers/wrangler/commands/#types):
-
-```txt
-npm run cf-typegen
-```
-
-Pass the `CloudflareBindings` as generics when instantiation `Hono`:
-
-```ts
-// src/index.ts
-const app = new Hono<{ Bindings: CloudflareBindings }>()
-```
-
-# create dummy data
+Create dummy data:
 
 ```sh
 npx wrangler d1 execute chat-app --local --command="INSERT INTO users (id, name) VALUES (1, 'Test User');"
