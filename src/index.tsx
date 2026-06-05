@@ -5,6 +5,7 @@ import { Link, Script, ViteClient } from 'vite-ssr-components/hono'
 import OpenAI from 'openai'
 import { SimpleChatMessageType } from './types/chat'
 import type { D1Database } from '@cloudflare/workers-types'
+import { readNote, createNote, editNote, tools } from './tools'
 
 type Bindings = {
   OPENAI_API_KEY: string
@@ -126,17 +127,73 @@ app.post('/api/chat', async (c) => {
   ).bind(threadId, 'user', content).run()
 
   const client = new OpenAI({ apiKey })
-  const response = await (client as any).responses.create({
+  let response = await (client as any).responses.create({
     model: MODEL,
     instructions: SYSTEM_INSTRUCTIONS,
     input: content,
     previous_response_id: previousResponseId ?? undefined,
+    tools,
+    tool_choice: "auto",
   })
 
-  const reply = response.output_text
+  // Function Callingの処理ループ
+  const functionCalls = response.output?.filter((o: any) => o.type === 'function_call') || []
+
+  if (functionCalls.length > 0) {
+    const functionOutputs = []
+    
+    for (const call of functionCalls) {
+      if (call.name === 'read_note') {
+        const notes = await readNote(c.env.DB, threadId)
+        functionOutputs.push({
+          type: "function_call_output",
+          call_id: call.call_id || call.id,
+          output: JSON.stringify(notes)
+        })
+      } else if (call.name === 'create_note') {
+        const args = typeof call.arguments === 'string' ? JSON.parse(call.arguments) : (call.arguments || {});
+        const note = await createNote(c.env.DB, threadId, args.content || '');
+        functionOutputs.push({
+          type: "function_call_output",
+          call_id: call.call_id || call.id,
+          output: JSON.stringify(note)
+        })
+      } else if (call.name === 'edit_note') {
+        const args = typeof call.arguments === 'string' ? JSON.parse(call.arguments) : (call.arguments || {});
+        const note = await editNote(c.env.DB, threadId, args.note_id, args.content || '');
+        functionOutputs.push({
+          type: "function_call_output",
+          call_id: call.call_id || call.id,
+          output: JSON.stringify(note)
+        })
+      }
+    }
+
+    // ツールの実行結果をAPIに渡し、最終的な返答を生成させる
+    if (functionOutputs.length > 0) {
+        await c.env.DB.prepare(
+          'INSERT INTO messages (thread_id, role, content, response_id, model, raw_response) VALUES (?, ?, ?, ?, ?, ?)'
+        ).bind(threadId, 'assistant', 'ツール実行中', response.id || null, MODEL, JSON.stringify(response)).run()
+      response = await (client as any).responses.create({
+        model: MODEL,
+        input: functionOutputs,
+        previous_response_id: response.id,
+      })
+    }
+  }
+
+  // テキストを安全に抽出（配列で返ってきた場合にも対応）
+  let reply = response.output_text || ''
+  if (!reply && Array.isArray(response.output)) {
+    const msg = response.output.find((o: any) => o.type === 'message')
+    if (msg && Array.isArray(msg.content)) {
+      reply = msg.content.map((c: any) => c.text || c.output_text || '').join('')
+    }
+  }
+
   const responseId = response.id || null
 
-  if (!response) {
+  if (!reply) {
     return c.json({ error: 'OpenAI returned an empty reply.' }, 502)
   }
 
