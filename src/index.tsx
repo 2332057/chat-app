@@ -15,7 +15,7 @@ type Bindings = {
 const app = new Hono<{ Bindings: Bindings }>()
 
 const MODEL = 'gpt-5-nano-2025-08-07'
-const SYSTEM_INSTRUCTIONS = 'You are a concise, helpful chat assistant.'
+const SYSTEM_INSTRUCTIONS = 'あなたは優秀なアシスタントとしてユーザーの要求に答えてください。コードを扱う際にはMDのコードブロック機能を使用してください。あなたはノートを作成・閲覧・編集することができます。ユーザーの指示に従い任意のタイミングでノートを取り扱ってください。'
 
 app.get('/api/threads', async (c) => {
   try {
@@ -152,7 +152,7 @@ app.post('/api/chat', async (c) => {
         })
       } else if (call.name === 'create_note') {
         const args = typeof call.arguments === 'string' ? JSON.parse(call.arguments) : (call.arguments || {});
-        const note = await createNote(c.env.DB, threadId, args.content || '');
+        const note = await createNote(c.env.DB, threadId, args.title || '', args.content || '');
         functionOutputs.push({
           type: "function_call_output",
           call_id: call.call_id || call.id,
@@ -160,7 +160,7 @@ app.post('/api/chat', async (c) => {
         })
       } else if (call.name === 'edit_note') {
         const args = typeof call.arguments === 'string' ? JSON.parse(call.arguments) : (call.arguments || {});
-        const note = await editNote(c.env.DB, threadId, args.note_id, args.content || '');
+        const note = await editNote(c.env.DB, threadId, args.note_id, args.title || '', args.content || '');
         functionOutputs.push({
           type: "function_call_output",
           call_id: call.call_id || call.id,
