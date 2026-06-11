@@ -50,7 +50,9 @@ export default function Home() {
       }
     }
     fetchThreads()
-    return () => { ignore = true }
+    return () => {
+      ignore = true
+    }
   }, [])
 
   useEffect(() => {
@@ -83,7 +85,9 @@ export default function Home() {
       }
     }
     fetchMessages()
-    return () => { ignore = true }
+    return () => {
+      ignore = true
+    }
   }, [activeThreadId])
 
   useEffect(() => {
@@ -102,12 +106,12 @@ export default function Home() {
       const res = await fetch('/api/threads', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: '新規チャット' })
+        body: JSON.stringify({ title: '新規チャット' }),
       })
       if (!res.ok) return
       const data = await res.json()
       if (data.thread) {
-        setThreadList(prev => [data.thread, ...prev])
+        setThreadList((prev) => [data.thread, ...prev])
         setActiveThreadId(data.thread.id)
       }
     } catch (e) {
@@ -119,7 +123,7 @@ export default function Home() {
 
   const editThreadTitle = async () => {
     if (!activeThreadId) return
-    const currentTitle = threadList.find(t => String(t.id) === String(activeThreadId))?.title
+    const currentTitle = threadList.find((t) => String(t.id) === String(activeThreadId))?.title
     const newTitle = prompt('新しいタイトルを入力してください', currentTitle || '')
 
     if (!newTitle || newTitle === currentTitle) return
@@ -129,12 +133,12 @@ export default function Home() {
       const res = await fetch(`/api/threads/${activeThreadId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: newTitle })
+        body: JSON.stringify({ title: newTitle }),
       })
       if (!res.ok) throw new Error('タイトルの更新に失敗しました')
       const data = await res.json()
       if (data.thread) {
-        setThreadList(prev => prev.map(t => String(t.id) === String(activeThreadId) ? { ...t, title: data.thread.title } : t))
+        setThreadList((prev) => prev.map((t) => (String(t.id) === String(activeThreadId) ? { ...t, title: data.thread.title } : t)))
       }
     } catch (e) {
       console.error(e)
@@ -150,12 +154,15 @@ export default function Home() {
     const value = draft.trim()
     if (!value) return
 
-    setMessages(prev => [...prev, {
-      id: createId(),
-      role: 'user',
-      content: value,
-      createdAt: Date.now(),
-    }])
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: createId(),
+        role: 'user',
+        content: value,
+        createdAt: Date.now(),
+      },
+    ])
     setDraft('')
     setBusy(true)
 
@@ -174,19 +181,25 @@ export default function Home() {
         throw new Error(data.error ?? 'チャットに失敗しました。')
       }
 
-      setMessages(prev => [...prev, {
-        id: createId(),
-        role: 'assistant',
-        content: data.reply ?? '返答がありませんでした。',
-        createdAt: Date.now(),
-      }])
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: createId(),
+          role: 'assistant',
+          content: data.reply ?? '返答がありませんでした。',
+          createdAt: Date.now(),
+        },
+      ])
     } catch (error) {
-      setMessages(prev => [...prev, {
-        id: createId(),
-        role: 'assistant',
-        content: error instanceof Error ? error.message : '予期しないエラーが発生しました。',
-        createdAt: Date.now(),
-      }])
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: createId(),
+          role: 'assistant',
+          content: error instanceof Error ? error.message : '予期しないエラーが発生しました。',
+          createdAt: Date.now(),
+        },
+      ])
     } finally {
       setBusy(false)
       textareaRef.current?.focus()
@@ -195,31 +208,31 @@ export default function Home() {
 
   const activeThreadData: ChatThreadType = {
     id: String(activeThreadId || ''),
-    title: threadList.find(t => String(t.id) === String(activeThreadId))?.title || '',
-    messages
+    title: threadList.find((t) => String(t.id) === String(activeThreadId))?.title || '',
+    messages,
   }
 
   return (
     <div className="home">
       <div className="split">
         <div className="note">
-
           <div className="selecter">
-            <label className="sr-only" htmlFor="thread">チャット選択</label>
-            <select
-              id="thread"
-              value={String(activeThreadId || '')}
-              onChange={(e) => setActiveThreadId(e.target.value)}
-              disabled={busy}
-            >
+            <label className="sr-only" htmlFor="thread">
+              チャット選択
+            </label>
+            <select id="thread" value={String(activeThreadId || '')} onChange={(e) => setActiveThreadId(e.target.value)} disabled={busy}>
               {threadList.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.title}
                 </option>
               ))}
             </select>
-            <button type="button" onClick={createThread} disabled={busy}>新規</button>
-            <button type="button" onClick={editThreadTitle} disabled={busy || !activeThreadId}>編集</button>
+            <button type="button" onClick={createThread} disabled={busy}>
+              新規
+            </button>
+            <button type="button" onClick={editThreadTitle} disabled={busy || !activeThreadId}>
+              編集
+            </button>
           </div>
 
           <h2>ノート</h2>
@@ -228,18 +241,11 @@ export default function Home() {
           {notes.map((note) => (
             <Note key={note.id} note={note} />
           ))}
-
         </div>
 
         <div ref={messagesRef} className="chat">
           <ChatThread {...activeThreadData} />
-          <ChatForm
-            value={draft}
-            onChange={setDraft}
-            onSend={() => void send()}
-            busy={busy}
-            textareaRef={textareaRef}
-          />
+          <ChatForm value={draft} onChange={setDraft} onSend={() => void send()} busy={busy} textareaRef={textareaRef} />
         </div>
       </div>
     </div>

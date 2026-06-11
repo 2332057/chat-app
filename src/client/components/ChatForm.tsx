@@ -37,7 +37,9 @@ export default function ChatForm({ value, onChange, onSend, busy, textareaRef }:
           }
         }}
       />
-      <button type="submit" disabled={busy || trimmed.length === 0}>↑</button>
+      <button type="submit" disabled={busy || trimmed.length === 0}>
+        ↑
+      </button>
     </form>
   )
 }

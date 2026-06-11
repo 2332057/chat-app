@@ -17,11 +17,11 @@ export async function editNote(db: D1Database, threadId: string | number, noteId
 
 export const tools = [
   {
-    type: "function" as const,
-    name: "read_note",
-    description: "現在のスレッドに保存されているノート（LLMが学んだ内容の記録）を読み取ります。ユーザーが以前の学習内容やノートについて言及した際に使用してください。",
+    type: 'function' as const,
+    name: 'read_note',
+    description: '現在のスレッドに保存されているノート（LLMが学んだ内容の記録）を読み取ります。ユーザーが以前の学習内容やノートについて言及した際に使用してください。',
     parameters: {
-      type: "object",
+      type: 'object',
       properties: {},
       required: [],
       additionalProperties: false,
@@ -29,34 +29,34 @@ export const tools = [
     strict: true,
   },
   {
-    type: "function" as const,
-    name: "create_note",
-    description: "新しいノートを作成して、ユーザーの学習内容や重要な情報を記録します。",
+    type: 'function' as const,
+    name: 'create_note',
+    description: '新しいノートを作成して、ユーザーの学習内容や重要な情報を記録します。',
     parameters: {
-      type: "object",
+      type: 'object',
       properties: {
-        title: { type: "string", description: "ノートのタイトル" },
-        content: { type: "string", description: "ノートに保存する内容（マークダウン形式）" },
+        title: { type: 'string', description: 'ノートのタイトル' },
+        content: { type: 'string', description: 'ノートに保存する内容（マークダウン形式）' },
       },
-      required: ["title", "content"],
+      required: ['title', 'content'],
       additionalProperties: false,
     },
     strict: true,
   },
   {
-    type: "function" as const,
-    name: "edit_note",
-    description: "既存のノートの内容を更新します。ユーザーから指示があった場合や、情報が古くなった場合に使用します。",
+    type: 'function' as const,
+    name: 'edit_note',
+    description: '既存のノートの内容を更新します。ユーザーから指示があった場合や、情報が古くなった場合に使用します。',
     parameters: {
-      type: "object",
+      type: 'object',
       properties: {
-        note_id: { type: "integer", description: "更新するノートのID" },
-        title: { type: "string", description: "ノートの新しいタイトル" },
-        content: { type: "string", description: "ノートの新しい内容（マークダウン形式）" },
+        note_id: { type: 'integer', description: '更新するノートのID' },
+        title: { type: 'string', description: 'ノートの新しいタイトル' },
+        content: { type: 'string', description: 'ノートの新しい内容（マークダウン形式）' },
       },
-      required: ["note_id", "title", "content"],
+      required: ['note_id', 'title', 'content'],
       additionalProperties: false,
     },
     strict: true,
   },
-];
+]
