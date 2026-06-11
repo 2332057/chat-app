@@ -1,9 +1,10 @@
 /** @jsxImportSource react */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChatMessageType, ChatThreadType } from '../../types/chat'
+import { ChatMessageType, ChatThreadType, NoteType } from '../../types/chat'
 import ChatThread from '../components/ChatThread'
 import ChatForm from '../components/ChatForm'
+import Note from '../components/Note'
 import './Home.css'
 
 const createId = () => {
@@ -18,6 +19,7 @@ export default function Home() {
   const [threadList, setThreadList] = useState<{ id: string | number; title: string }[]>([])
   const [activeThreadId, setActiveThreadId] = useState<string | number | null>(null)
   const [messages, setMessages] = useState<ChatMessageType[]>([])
+  const [notes, setNotes] = useState<NoteType[]>([])
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -69,6 +71,13 @@ export default function Home() {
           createdAt: new Date(m.created_at || Date.now()).getTime(),
         }))
         setMessages(loadedMessages)
+
+        const loadedNotes = (data.notes || []).map((n: any) => ({
+          id: String(n.id),
+          title: n.title,
+          content: n.content,
+        }))
+        setNotes(loadedNotes)
       } catch (e) {
         console.error('Failed to fetch messages', e)
       }
@@ -215,6 +224,11 @@ export default function Home() {
 
           <h2>ノート</h2>
           <p>LLMが学んだ内容をノートに記述します。</p>
+
+          {notes.map((note) => (
+            <Note key={note.id} note={note} />
+          ))}
+
         </div>
 
         <div ref={messagesRef} className="chat">

@@ -23,3 +23,10 @@ export type PersistedStateV1Type = {
   activeThreadId: string
   threads: ChatThreadType[]
 }
+
+export type NoteType = {
+  id: string
+  thread_id: number
+  title: string
+  content: string
+}
