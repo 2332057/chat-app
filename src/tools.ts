@@ -1,18 +1,21 @@
 import type { D1Database } from '@cloudflare/workers-types'
+import type { NoteType } from './types/chat'
 
-export async function readNote(db: D1Database, threadId: string | number) {
-  const { results } = await db.prepare('SELECT id, title, content FROM notes WHERE thread_id = ? ORDER BY created_at ASC').bind(threadId).all()
-  return results.length > 0 ? results : [{ message: 'ノートはまだありません。' }]
+type ToolError = { error: string }
+
+export async function readNote(db: D1Database, threadId: string | number): Promise<NoteType[] | ToolError> {
+  const { results } = await db.prepare('SELECT id, thread_id, title, content FROM notes WHERE thread_id = ? ORDER BY created_at ASC').bind(threadId).all()
+  return results.length > 0 ? (results as NoteType[]) : { error: 'ノートはまだありません。' }
 }
 
-export async function createNote(db: D1Database, threadId: string | number, title: string, content: string) {
-  const { results } = await db.prepare('INSERT INTO notes (thread_id, title, content) VALUES (?, ?, ?) RETURNING id, title, content').bind(threadId, title, content).all()
-  return results[0] || { error: 'ノートの作成に失敗しました。' }
+export async function createNote(db: D1Database, threadId: string | number, title: string, content: string): Promise<NoteType | ToolError> {
+  const { results } = await db.prepare('INSERT INTO notes (thread_id, title, content) VALUES (?, ?, ?) RETURNING id, thread_id, title, content').bind(threadId, title, content).all()
+  return results.length > 0 ? (results[0] as NoteType) : { error: 'ノートの作成に失敗しました。' }
 }
 
-export async function editNote(db: D1Database, threadId: string | number, noteId: number, title: string, content: string) {
-  const { results } = await db.prepare('UPDATE notes SET title = ?, content = ? WHERE id = ? AND thread_id = ? RETURNING id, title, content').bind(title, content, noteId, threadId).all()
-  return results.length > 0 ? results[0] : { error: 'ノートが見つからないか、更新に失敗しました。' }
+export async function editNote(db: D1Database, threadId: string | number, noteId: number, title: string, content: string): Promise<NoteType | ToolError> {
+  const { results } = await db.prepare('UPDATE notes SET title = ?, content = ? WHERE id = ? AND thread_id = ? RETURNING id, thread_id, title, content').bind(title, content, noteId, threadId).all()
+  return results.length > 0 ? (results[0] as NoteType) : { error: 'ノートが見つからないか、更新に失敗しました。' }
 }
 
 export const tools = [

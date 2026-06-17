@@ -3,7 +3,7 @@
 import { Hono } from 'hono'
 import { Link, Script, ViteClient } from 'vite-ssr-components/hono'
 import OpenAI from 'openai'
-import { SimpleChatMessageType } from './types/chat'
+import { ChatReturnType } from './types/chat'
 import type { D1Database } from '@cloudflare/workers-types'
 import { readNote, createNote, editNote, tools } from './tools'
 
@@ -117,6 +117,10 @@ app.post('/api/chat', async (c) => {
     return c.json({ error: 'thread not found' }, 404)
   }
 
+  let responses: ChatReturnType = {
+    messages: [],
+    notes: [],
+  }
   const previousResponseId = thread.last_response_id
 
   await c.env.DB.prepare('INSERT INTO messages (thread_id, role, content) VALUES (?, ?, ?)').bind(threadId, 'user', content).run()
@@ -136,6 +140,7 @@ app.post('/api/chat', async (c) => {
 
   if (functionCalls.length > 0) {
     const functionOutputs = []
+    const functionLogs = []
 
     for (const call of functionCalls) {
       if (call.name === 'read_note') {
@@ -145,6 +150,11 @@ app.post('/api/chat', async (c) => {
           call_id: call.call_id || call.id,
           output: JSON.stringify(notes),
         })
+        if (!('error' in notes)) {
+          functionLogs.push('ノートを読みました')
+        } else {
+          functionLogs.push('ノートの読み取りに失敗しました（またはノートがありません）')
+        }
       } else if (call.name === 'create_note') {
         const args = typeof call.arguments === 'string' ? JSON.parse(call.arguments) : call.arguments || {}
         const note = await createNote(c.env.DB, threadId, args.title || '', args.content || '')
@@ -153,6 +163,17 @@ app.post('/api/chat', async (c) => {
           call_id: call.call_id || call.id,
           output: JSON.stringify(note),
         })
+        if (!('error' in note)) {
+          responses.notes.push({
+            id: note.id,
+            title: note.title,
+            content: note.content,
+            thread_id: note.thread_id,
+          })
+          functionLogs.push('ノートを作成しました')
+        } else {
+          functionLogs.push('ノートの作成に失敗しました')
+        }
       } else if (call.name === 'edit_note') {
         const args = typeof call.arguments === 'string' ? JSON.parse(call.arguments) : call.arguments || {}
         const note = await editNote(c.env.DB, threadId, args.note_id, args.title || '', args.content || '')
@@ -161,14 +182,32 @@ app.post('/api/chat', async (c) => {
           call_id: call.call_id || call.id,
           output: JSON.stringify(note),
         })
+        if (!('error' in note)) {
+          responses.notes.push({
+            id: note.id,
+            title: note.title,
+            content: note.content,
+            thread_id: note.thread_id,
+          })
+          functionLogs.push('ノートを編集しました')
+        } else {
+          functionLogs.push('ノートの編集に失敗しました')
+        }
       }
     }
 
     // ツールの実行結果をAPIに渡し、最終的な返答を生成させる
     if (functionOutputs.length > 0) {
+      const functionLog = functionLogs.join('\n')
       await c.env.DB.prepare('INSERT INTO messages (thread_id, role, content, response_id, model, raw_response) VALUES (?, ?, ?, ?, ?, ?)')
-        .bind(threadId, 'assistant', 'ツール実行中', response.id || null, MODEL, JSON.stringify(response))
+        .bind(threadId, 'assistant', 'ツール実行: ' + functionLog, response.id || null, MODEL, JSON.stringify(response))
         .run()
+      responses.messages.push({
+        id: response.id || '',
+        role: 'assistant',
+        content: 'ツール実行: ' + functionLog,
+        createdAt: Date.now(),
+      })
       response = await (client as any).responses.create({
         model: MODEL,
         input: functionOutputs,
@@ -186,21 +225,26 @@ app.post('/api/chat', async (c) => {
     }
   }
 
-  const responseId = response.id || null
-
   if (!reply) {
     return c.json({ error: 'OpenAI returned an empty reply.' }, 502)
   }
 
   await c.env.DB.prepare('INSERT INTO messages (thread_id, role, content, response_id, model, raw_response) VALUES (?, ?, ?, ?, ?, ?)')
-    .bind(threadId, 'assistant', reply, responseId, MODEL, JSON.stringify(response))
+    .bind(threadId, 'assistant', reply, response.id, MODEL, JSON.stringify(response))
     .run()
 
-  if (responseId) {
-    await c.env.DB.prepare('UPDATE threads SET last_response_id = ? WHERE id = ?').bind(responseId, threadId).run()
+  responses.messages.push({
+    id: response.id || '',
+    role: 'assistant',
+    content: reply,
+    createdAt: Date.now(),
+  })
+
+  if (response.id) {
+    await c.env.DB.prepare('UPDATE threads SET last_response_id = ? WHERE id = ?').bind(response.id, threadId).run()
   }
 
-  return c.json({ reply })
+  return c.json(responses)
 })
 
 app.get('*', (c) => {

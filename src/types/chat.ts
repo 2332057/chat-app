@@ -30,3 +30,8 @@ export type NoteType = {
   title: string
   content: string
 }
+
+export type ChatReturnType = {
+  messages: ChatMessageType[]
+  notes: NoteType[]
+}
