@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChatMessageType, ChatThreadType, NoteType } from '../../types/chat'
+import { ChatMessageType, ChatReturnType, ChatThreadType, NoteType } from '../../types/chat'
 import ChatThread from '../components/ChatThread'
 import ChatForm from '../components/ChatForm'
 import Note from '../components/Note'
@@ -175,21 +175,33 @@ export default function Home() {
         body: JSON.stringify({ threadId: activeThreadId, content: value }),
       })
 
-      const data = (await response.json()) as { reply?: string; error?: string }
+      const data = (await response.json()) as ChatReturnType
 
       if (!response.ok) {
-        throw new Error(data.error ?? 'チャットに失敗しました。')
+        throw new Error('チャットに失敗しました。')
       }
 
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: createId(),
-          role: 'assistant',
-          content: data.reply ?? '返答がありませんでした。',
-          createdAt: Date.now(),
-        },
-      ])
+      if (data.messages && data.messages.length > 0) {
+        setMessages((prev) => [
+          ...prev,
+          ...data.messages,
+        ])
+      }
+
+      if (data.notes && data.notes.length > 0) {
+        setNotes((prev) => {
+          const next = [...prev]
+          data.notes!.forEach((newNote) => {
+            const index = next.findIndex((n) => String(n.id) === String(newNote.id))
+            if (index !== -1) {
+              next[index] = newNote
+            } else {
+              next.push(newNote)
+            }
+          })
+          return next
+        })
+      }
     } catch (error) {
       setMessages((prev) => [
         ...prev,
