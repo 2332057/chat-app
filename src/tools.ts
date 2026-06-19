@@ -19,6 +19,7 @@ export async function editNote(db: D1Database, threadId: string | number, noteId
 }
 
 export const tools = [
+  { type: 'web_search' },
   {
     type: 'function' as const,
     name: 'read_note',
