@@ -6,6 +6,7 @@ import OpenAI from 'openai'
 import { ChatReturnType } from './types/chat'
 import type { D1Database } from '@cloudflare/workers-types'
 import { readNote, createNote, editNote, tools } from './tools'
+import SYSTEM_INSTRUCTIONS from './instructions.md?raw'
 
 type Bindings = {
   OPENAI_API_KEY: string
@@ -14,9 +15,7 @@ type Bindings = {
 
 const app = new Hono<{ Bindings: Bindings }>()
 
-const MODEL = 'gpt-5-nano-2025-08-07'
-const SYSTEM_INSTRUCTIONS =
-  'あなたは優秀なアシスタントとしてユーザーの要求に答えてください。コードを扱う際にはMDのコードブロック機能を使用してください。あなたはノートを作成・閲覧・編集することができます。ユーザーの指示に従い任意のタイミングでノートを取り扱ってください。'
+const MODEL = 'gpt-5.5-2026-04-23'
 
 app.get('/api/threads', async (c) => {
   try {
