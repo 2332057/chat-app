@@ -16,6 +16,11 @@ For local development, create a `.dev.vars` file with:
 
 ```txt
 OPENAI_API_KEY=your_api_key_here
+OPENAI_BASE_URL=https://your.gateway.here/compat
+OPENAI_MODEL=your-model-here
+CHAT_API_PROVIDER=responses / chat-completions
+OPENAI_MAX_TOKENS=30000
+DISABLE_OPENAI_REASONING_EFFORT=high
 ```
 
 Create db:

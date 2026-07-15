@@ -10,6 +10,8 @@ export type ChatMessageType = {
   role: ChatRoleType
   content: string
   createdAt: number
+  // assistant のみ: レスポンスに含まれる実際のモデル名
+  model?: string
 }
 
 export type ChatThreadType = {

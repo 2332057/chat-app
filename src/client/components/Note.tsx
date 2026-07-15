@@ -28,8 +28,7 @@ export default function Note({ versions }: { versions: NoteType[] }) {
 
   return (
     <div className={styles.note}>
-      <span>{selected.title}</span>
-      <span>id: {selected.id}</span>
+      <span title={'id: ' + selected.id}>{selected.title}</span>
       <label htmlFor="note-version">バージョン</label>
       <select id="note-version" value={index} onChange={(e) => setSelectedIndex(Number(e.target.value))}>
         {sorted.map((v, i) => (

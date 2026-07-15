@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ChatMessageType, ChatReturnType, ChatThreadType, NoteType } from '../../types/chat'
 import ChatThread from '../components/ChatThread'
 import ChatForm from '../components/ChatForm'
@@ -13,6 +13,14 @@ const createId = () => {
   } catch {
     return `${Date.now()}-${Math.random().toString(16).slice(2)}`
   }
+}
+
+const parseSqliteUtc = (raw?: string): number => {
+  if (!raw) return Date.now()
+  const iso = raw.includes('T') ? raw : raw.replace(' ', 'T')
+  const withZone = /[zZ]|[+-]\d{2}:?\d{2}$/.test(iso) ? iso : `${iso}Z`
+  const t = new Date(withZone).getTime()
+  return Number.isNaN(t) ? Date.now() : t
 }
 
 export default function Home() {
@@ -70,7 +78,8 @@ export default function Home() {
           id: String(m.id),
           role: m.role,
           content: m.content,
-          createdAt: new Date(m.created_at || Date.now()).getTime(),
+          createdAt: parseSqliteUtc(m.created_at),
+          model: m.model ?? undefined,
         }))
         setMessages(loadedMessages)
 

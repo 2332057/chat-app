@@ -3,19 +3,21 @@
 import { Hono } from 'hono'
 import { Link, Script, ViteClient } from 'vite-ssr-components/hono'
 import OpenAI from 'openai'
-import { ChatReturnType } from './types/chat'
 import type { D1Database } from '@cloudflare/workers-types'
-import { readNote, createNote, editNote, tools } from './tools'
-import SYSTEM_INSTRUCTIONS from './instructions.md?raw'
+import { runChat, resolveChatProvider, resolveChatClientConfig, EmptyReplyError } from './server/chat'
+import type { ChatRequestBody, ChatThreadRecord } from './server/chat'
 
 type Bindings = {
   OPENAI_API_KEY: string
+  OPENAI_BASE_URL?: string
+  OPENAI_MODEL?: string
+  OPENAI_MAX_TOKENS?: string
+  OPENAI_REASONING_EFFORT?: string
+  CHAT_API_PROVIDER?: string
   DB: D1Database
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
-
-const MODEL = 'gpt-5.5-2026-04-23'
 
 app.get('/api/threads', async (c) => {
   try {
@@ -94,15 +96,15 @@ app.patch('/api/threads/:id', async (c) => {
 })
 
 app.post('/api/chat', async (c) => {
-  const apiKey = c.env.OPENAI_API_KEY
-
-  if (!apiKey) {
-    return c.json({ error: 'OPENAI_API_KEY is not set.' }, 500)
-  }
-
-  const body = await c.req.json<{ threadId?: string | number; content?: string }>().catch(() => null)
+  const body = await c.req.json<ChatRequestBody>().catch(() => null)
   const threadId = body?.threadId
   const content = body?.content?.trim()
+  const provider = resolveChatProvider(c.env.CHAT_API_PROVIDER)
+  const clientConfig = resolveChatClientConfig(c.env)
+
+  if (!clientConfig.apiKey) {
+    return c.json({ error: 'OPENAI_API_KEY is not set.' }, 500)
+  }
 
   if (!threadId) {
     return c.json({ error: 'threadId is required.' }, 400)
@@ -111,139 +113,42 @@ app.post('/api/chat', async (c) => {
     return c.json({ error: 'content is required.' }, 400)
   }
 
-  const thread = await c.env.DB.prepare('SELECT id, last_response_id FROM threads WHERE id = ?').bind(threadId).first<{ id: string | number; last_response_id: string | null }>()
+  const thread = await c.env.DB.prepare('SELECT id, last_response_id FROM threads WHERE id = ?').bind(threadId).first<ChatThreadRecord>()
   if (!thread) {
     return c.json({ error: 'thread not found' }, 404)
   }
 
-  let responses: ChatReturnType = {
-    messages: [],
-    notes: [],
-  }
-  const previousResponseId = thread.last_response_id
-
   await c.env.DB.prepare('INSERT INTO messages (thread_id, role, content) VALUES (?, ?, ?)').bind(threadId, 'user', content).run()
 
-  const client = new OpenAI({ apiKey })
-  let response = await (client as any).responses.create({
-    model: MODEL,
-    instructions: SYSTEM_INSTRUCTIONS,
-    input: content,
-    previous_response_id: previousResponseId ?? undefined,
-    tools,
-    tool_choice: 'auto',
+  const client = new OpenAI({
+    apiKey: clientConfig.apiKey,
+    baseURL: clientConfig.baseURL,
   })
 
-  // Function Callingの処理ループ
-  const functionCalls = response.output?.filter((o: any) => o.type === 'function_call') || []
+  try {
+    const { lastResponseId, ...responses } = await runChat(provider, {
+      client,
+      db: c.env.DB,
+      threadId,
+      content,
+      model: clientConfig.model,
+      maxTokens: clientConfig.maxTokens,
+      reasoningEffort: clientConfig.reasoningEffort,
+      previousResponseId: thread.last_response_id ?? undefined,
+    })
 
-  if (functionCalls.length > 0) {
-    const functionOutputs = []
-    const functionLogs = []
-
-    for (const call of functionCalls) {
-      if (call.name === 'read_note') {
-        const notes = await readNote(c.env.DB, threadId)
-        functionOutputs.push({
-          type: 'function_call_output',
-          call_id: call.call_id || call.id,
-          output: JSON.stringify(notes),
-        })
-        if (!('error' in notes)) {
-          functionLogs.push('ノートを読みました')
-        } else {
-          functionLogs.push('ノートの読み取りに失敗しました（またはノートがありません）')
-        }
-      } else if (call.name === 'create_note') {
-        const args = typeof call.arguments === 'string' ? JSON.parse(call.arguments) : call.arguments || {}
-        const note = await createNote(c.env.DB, threadId, args.title || '', args.content || '')
-        functionOutputs.push({
-          type: 'function_call_output',
-          call_id: call.call_id || call.id,
-          output: JSON.stringify(note),
-        })
-        if (!('error' in note)) {
-          responses.notes.push({
-            id: note.id,
-            title: note.title,
-            content: note.content,
-            thread_id: note.thread_id,
-          })
-          functionLogs.push('ノートを作成しました')
-        } else {
-          functionLogs.push('ノートの作成に失敗しました')
-        }
-      } else if (call.name === 'edit_note') {
-        const args = typeof call.arguments === 'string' ? JSON.parse(call.arguments) : call.arguments || {}
-        const note = await editNote(c.env.DB, threadId, args.note_id, args.title || '', args.content || '')
-        functionOutputs.push({
-          type: 'function_call_output',
-          call_id: call.call_id || call.id,
-          output: JSON.stringify(note),
-        })
-        if (!('error' in note)) {
-          responses.notes.push({
-            id: note.id,
-            title: note.title,
-            content: note.content,
-            thread_id: note.thread_id,
-          })
-          functionLogs.push('ノートを編集しました')
-        } else {
-          functionLogs.push('ノートの編集に失敗しました')
-        }
-      }
+    if (lastResponseId) {
+      await c.env.DB.prepare('UPDATE threads SET last_response_id = ? WHERE id = ?').bind(lastResponseId, threadId).run()
     }
 
-    // ツールの実行結果をAPIに渡し、最終的な返答を生成させる
-    if (functionOutputs.length > 0) {
-      const functionLog = functionLogs.join('\n')
-      await c.env.DB.prepare('INSERT INTO messages (thread_id, role, content, response_id, model, raw_response) VALUES (?, ?, ?, ?, ?, ?)')
-        .bind(threadId, 'assistant', 'ツール実行: ' + functionLog, response.id || null, MODEL, JSON.stringify(response))
-        .run()
-      responses.messages.push({
-        id: response.id || '',
-        role: 'assistant',
-        content: 'ツール実行: ' + functionLog,
-        createdAt: Date.now(),
-      })
-      response = await (client as any).responses.create({
-        model: MODEL,
-        input: functionOutputs,
-        previous_response_id: response.id,
-      })
+    return c.json(responses)
+  } catch (error) {
+    if (error instanceof EmptyReplyError) {
+      return c.json({ error: 'OpenAI returned an empty reply.' }, 502)
     }
+    console.error(error)
+    return c.json({ error: 'チャットの生成に失敗しました。' }, 500)
   }
-
-  // テキストを安全に抽出（配列で返ってきた場合にも対応）
-  let reply = response.output_text || ''
-  if (!reply && Array.isArray(response.output)) {
-    const msg = response.output.find((o: any) => o.type === 'message')
-    if (msg && Array.isArray(msg.content)) {
-      reply = msg.content.map((c: any) => c.text || c.output_text || '').join('')
-    }
-  }
-
-  if (!reply) {
-    return c.json({ error: 'OpenAI returned an empty reply.' }, 502)
-  }
-
-  await c.env.DB.prepare('INSERT INTO messages (thread_id, role, content, response_id, model, raw_response) VALUES (?, ?, ?, ?, ?, ?)')
-    .bind(threadId, 'assistant', reply, response.id, MODEL, JSON.stringify(response))
-    .run()
-
-  responses.messages.push({
-    id: response.id || '',
-    role: 'assistant',
-    content: reply,
-    createdAt: Date.now(),
-  })
-
-  if (response.id) {
-    await c.env.DB.prepare('UPDATE threads SET last_response_id = ? WHERE id = ?').bind(response.id, threadId).run()
-  }
-
-  return c.json(responses)
 })
 
 app.get('*', (c) => {
