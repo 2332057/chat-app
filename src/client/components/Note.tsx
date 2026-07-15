@@ -1,16 +1,49 @@
 /** @jsxImportSource react */
 
+import { useEffect, useMemo, useState } from 'react'
 import './Note.css'
 import { NoteType } from '../../types/chat'
 import { MDView } from './MDView'
+import { computeNoteDiff } from '../utils/noteDiff'
 
-export default function Note({ note }: { note: NoteType }) {
+export default function Note({ versions }: { versions: NoteType[] }) {
+  // id が小さいほど古いバージョンとして扱う
+  const sorted = useMemo(() => [...versions].sort((a, b) => Number(a.id) - Number(b.id)), [versions])
+
+  const [selectedIndex, setSelectedIndex] = useState(sorted.length - 1)
+
+  // 新しいバージョンが追加されたら最新に追従する
+  useEffect(() => {
+    setSelectedIndex(sorted.length - 1)
+  }, [sorted.length])
+
+  const index = Math.min(Math.max(selectedIndex, 0), sorted.length - 1)
+  const selected = sorted[index]
+  const previous = index > 0 ? sorted[index - 1] : null
+
+  const diff = useMemo(
+    () => computeNoteDiff(previous ? previous.content : null, selected?.content ?? ''),
+    [previous, selected],
+  )
+
+  if (!selected) return null
+
   return (
     <div className="note">
-      <span className="note-title">{note.title}</span>
-      <span className="note-id">id: {note.id}</span>
+      <span className="note-title">{selected.title}</span>
+      <span className="note-id">id: {selected.id}</span>
+      <label className="sr-only" htmlFor="note-version">
+        バージョン選択
+      </label>
+      <select id="note-version" className="note-version" value={index} onChange={(e) => setSelectedIndex(Number(e.target.value))}>
+        {sorted.map((v, i) => (
+          <option key={v.id} value={i}>
+            {i === sorted.length - 1 ? `v${i + 1} (最新)` : `v${i + 1}`}
+          </option>
+        ))}
+      </select>
       <hr />
-      <MDView content={note.content} />
+      <MDView content={selected.content} diff={diff} />
     </div>
   )
 }

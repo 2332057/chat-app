@@ -1,0 +1,45 @@
+.note .note-version {
+  margin-left: 8px;
+}
+
+/* 差分ガター用の余白 */
+.note .markdown-body {
+  padding-left: 14px;
+}
+
+/* 追加(緑)・変更(青): ブロック左側のボーダーで示す */
+.note .markdown-body .diff-added,
+.note .markdown-body .diff-modified {
+  border-left: 3px solid;
+  padding-left: 8px;
+  margin-left: -11px;
+}
+
+.note .markdown-body .diff-added {
+  border-color: #2da44e;
+}
+
+.note .markdown-body .diff-modified {
+  border-color: #0969da;
+}
+
+/* 削除: 左側に赤い ▶ */
+.note .markdown-body .diff-deleted-marker {
+  position: relative;
+}
+
+.note .markdown-body .diff-deleted-marker::before {
+  content: '▶';
+  color: #cf222e;
+  font-size: 0.65em;
+  line-height: 1;
+  position: absolute;
+  left: -14px;
+  top: 0.4em;
+}
+
+/* ボーダー付きブロックでは ▶ をボーダーの外側に出す */
+.note .markdown-body .diff-added.diff-deleted-marker::before,
+.note .markdown-body .diff-modified.diff-deleted-marker::before {
+  left: -25px;
+}

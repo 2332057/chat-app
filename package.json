@@ -9,6 +9,7 @@
     "cf-typegen": "wrangler types --env-interface CloudflareBindings"
   },
   "dependencies": {
+    "diff": "^9.0.0",
     "highlight.js": "^11.11.1",
     "hono": "^4.12.23",
     "openai": "^6.39.0",

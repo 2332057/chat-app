@@ -250,9 +250,7 @@ export default function Home() {
           <h2>ノート</h2>
           <p>LLMが学んだ内容をノートに記述します。</p>
 
-          {notes.map((note) => (
-            <Note key={note.id} note={note} />
-          ))}
+          {notes.length > 0 && <Note versions={notes} />}
         </div>
 
         <div ref={messagesRef} className="chat">
