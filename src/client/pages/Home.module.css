@@ -1,0 +1,33 @@
+.header {
+  height: 2rem;
+  padding: 0 1rem;
+  overflow: hidden;
+}
+.header h1 {
+  font-size: 1rem;
+  line-height: 2rem;
+  margin: 0;
+  display: inline-block;
+}
+.chat_selector {
+  margin: 0 0 0 1rem;
+  display: inline-block;
+}
+.main {
+  height: calc(100svh - 2rem);
+}
+.split {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  height: 100%;
+}
+.note,
+.chat {
+  padding: 1rem;
+  margin: 0 auto;
+  border: 1px solid #ccc;
+  border-radius: 0.5rem;
+  overflow-y: auto;
+  flex: 1 1 300px;
+}

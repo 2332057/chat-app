@@ -4,6 +4,7 @@ import remarkBreaks from 'remark-breaks'
 import rehypeHighlight from 'rehype-highlight'
 import type { Element, Root, RootContent } from 'hast'
 import type { NoteDiffResult } from '../utils/noteDiff'
+import './MDView.css'
 
 import 'highlight.js/styles/github-dark.css'
 

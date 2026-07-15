@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 
 import { useEffect, useMemo, useState } from 'react'
-import './Note.css'
+import styles from './Note.module.css'
 import { NoteType } from '../../types/chat'
 import { MDView } from './MDView'
 import { computeNoteDiff } from '../utils/noteDiff'
@@ -21,21 +21,16 @@ export default function Note({ versions }: { versions: NoteType[] }) {
   const selected = sorted[index]
   const previous = index > 0 ? sorted[index - 1] : null
 
-  const diff = useMemo(
-    () => computeNoteDiff(previous ? previous.content : null, selected?.content ?? ''),
-    [previous, selected],
-  )
+  const diff = useMemo(() => computeNoteDiff(previous ? previous.content : null, selected?.content ?? ''), [previous, selected])
 
   if (!selected) return null
 
   return (
-    <div className="note">
-      <span className="note-title">{selected.title}</span>
-      <span className="note-id">id: {selected.id}</span>
-      <label className="sr-only" htmlFor="note-version">
-        バージョン選択
-      </label>
-      <select id="note-version" className="note-version" value={index} onChange={(e) => setSelectedIndex(Number(e.target.value))}>
+    <div className={styles.note}>
+      <span>{selected.title}</span>
+      <span>id: {selected.id}</span>
+      <label htmlFor="note-version">バージョン</label>
+      <select id="note-version" value={index} onChange={(e) => setSelectedIndex(Number(e.target.value))}>
         {sorted.map((v, i) => (
           <option key={v.id} value={i}>
             {i === sorted.length - 1 ? `v${i + 1} (最新)` : `v${i + 1}`}

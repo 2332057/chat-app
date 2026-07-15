@@ -5,7 +5,7 @@ import { ChatMessageType, ChatReturnType, ChatThreadType, NoteType } from '../..
 import ChatThread from '../components/ChatThread'
 import ChatForm from '../components/ChatForm'
 import Note from '../components/Note'
-import './Home.css'
+import styles from './Home.module.css'
 
 const createId = () => {
   try {
@@ -182,10 +182,7 @@ export default function Home() {
       }
 
       if (data.messages && data.messages.length > 0) {
-        setMessages((prev) => [
-          ...prev,
-          ...data.messages,
-        ])
+        setMessages((prev) => [...prev, ...data.messages])
       }
 
       if (data.notes && data.notes.length > 0) {
@@ -225,39 +222,35 @@ export default function Home() {
   }
 
   return (
-    <div className="home">
-      <div className="split">
-        <div className="note">
-          <div className="selecter">
-            <label className="sr-only" htmlFor="thread">
-              チャット選択
-            </label>
-            <select id="thread" value={String(activeThreadId || '')} onChange={(e) => setActiveThreadId(e.target.value)} disabled={busy}>
-              {threadList.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.title}
-                </option>
-              ))}
-            </select>
-            <button type="button" onClick={createThread} disabled={busy}>
-              新規
-            </button>
-            <button type="button" onClick={editThreadTitle} disabled={busy || !activeThreadId}>
-              編集
-            </button>
+    <>
+      <header className={styles.header}>
+        <h1>学習支援システム</h1>
+        <div className={styles.chat_selector}>
+          <label htmlFor="thread">チャット</label>
+          <select id="thread" value={String(activeThreadId || '')} onChange={(e) => setActiveThreadId(e.target.value)} disabled={busy}>
+            {threadList.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.title}
+              </option>
+            ))}
+          </select>
+          <button type="button" onClick={createThread} disabled={busy}>
+            新規
+          </button>
+          <button type="button" onClick={editThreadTitle} disabled={busy || !activeThreadId}>
+            編集
+          </button>
+        </div>
+      </header>
+      <main className={styles.main}>
+        <div className={styles.split}>
+          <div className={styles.note}>{notes.length > 0 && <Note versions={notes} />}</div>
+          <div ref={messagesRef} className={styles.chat}>
+            <ChatThread {...activeThreadData} />
+            <ChatForm value={draft} onChange={setDraft} onSend={() => void send()} busy={busy} textareaRef={textareaRef} />
           </div>
-
-          <h2>ノート</h2>
-          <p>LLMが学んだ内容をノートに記述します。</p>
-
-          {notes.length > 0 && <Note versions={notes} />}
         </div>
-
-        <div ref={messagesRef} className="chat">
-          <ChatThread {...activeThreadData} />
-          <ChatForm value={draft} onChange={setDraft} onSend={() => void send()} busy={busy} textareaRef={textareaRef} />
-        </div>
-      </div>
-    </div>
+      </main>
+    </>
   )
 }
