@@ -11,6 +11,7 @@ export default function Note({ versions }: { versions: NoteType[] }) {
   const sorted = useMemo(() => [...versions].sort((a, b) => Number(a.id) - Number(b.id)), [versions])
 
   const [selectedIndex, setSelectedIndex] = useState(sorted.length - 1)
+  const [showDiff, setShowDiff] = useState(true)
 
   // 新しいバージョンが追加されたら最新に追従する
   useEffect(() => {
@@ -37,8 +38,12 @@ export default function Note({ versions }: { versions: NoteType[] }) {
           </option>
         ))}
       </select>
+      <label htmlFor="note-show-diff">
+        <input id="note-show-diff" type="checkbox" checked={showDiff} onChange={(e) => setShowDiff(e.target.checked)} />
+        差分
+      </label>
       <hr />
-      <MDView content={selected.content} diff={diff} />
+      <MDView content={selected.content} diff={showDiff ? diff : undefined} />
     </div>
   )
 }
