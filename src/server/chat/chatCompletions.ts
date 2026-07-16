@@ -5,6 +5,8 @@ import type { AppToolCall } from './toolCalls'
 import { EmptyReplyError } from './types'
 import type { ChatProviderContext, ChatProviderResult } from './types'
 
+const MAX_TOOL_ROUNDS = 3
+
 export async function runChatCompletionsChat(ctx: ChatProviderContext): Promise<ChatProviderResult> {
   const { client, db, threadId, model, maxTokens, reasoningEffort } = ctx
 
@@ -44,9 +46,12 @@ export async function runChatCompletionsChat(ctx: ChatProviderContext): Promise<
   let message = completion.choices[0]?.message
 
   // Function Callingの処理ループ
-  const toolCalls = (message?.tool_calls || []).filter((tc: any) => tc.type === 'function')
+  for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+    const toolCalls = (message?.tool_calls || []).filter((tc: any) => tc.type === 'function')
+    if (toolCalls.length === 0) {
+      break
+    }
 
-  if (toolCalls.length > 0) {
     const appCalls: AppToolCall[] = toolCalls.map((tc: any) => ({
       id: tc.id,
       name: tc.function.name,
@@ -55,54 +60,55 @@ export async function runChatCompletionsChat(ctx: ChatProviderContext): Promise<
     const { outputs, logs, notes } = await runAppToolCalls(db, threadId, appCalls)
     result.notes.push(...notes)
 
-    // ツールの実行結果をAPIに渡し、最終的な返答を生成させる
-    if (outputs.length > 0) {
-      const functionLog = 'ツール実行: ' + logs.join('\n')
-      const toolPayload = buildToolPayload(appCalls, outputs)
-      await db
-        .prepare('INSERT INTO messages (thread_id, role, content, response_id, model, raw_response, tool_payload) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .bind(threadId, 'assistant', functionLog, completion.id || null, completion.model ?? model, JSON.stringify(completion), toolPayload)
-        .run()
-      result.messages.push({
-        id: completion.id || '',
-        role: 'assistant',
-        content: functionLog,
-        createdAt: Date.now(),
-        model: completion.model ?? model,
-      })
-
-      // モデルの応答をそのまま送り返すと、reasoning_content など互換仕様外の
-      // フィールドが混ざり400になるプロバイダーがある（Workers AIのqwen3等）ため、
-      // 必要なフィールドだけに整形する
-      conversation.push({
-        role: 'assistant',
-        content: message?.content ?? '',
-        tool_calls: toolCalls.map((tc: any) => ({
-          id: tc.id,
-          type: 'function' as const,
-          function: {
-            name: tc.function.name,
-            arguments: tc.function.arguments,
-          },
-        })),
-      })
-      for (const o of outputs) {
-        conversation.push({
-          role: 'tool',
-          tool_call_id: o.callId,
-          content: o.output,
-        })
-      }
-
-      completion = await client.chat.completions.create({
-        model: model,
-        messages: conversation,
-        tools: chatCompletionTools as any,
-        tool_choice: 'auto',
-        ...extraParams,
-      } as any)
-      message = completion.choices[0]?.message
+    if (outputs.length === 0) {
+      break
     }
+
+    // ツールの実行結果をAPIに渡し、最終的な返答を生成させる
+    const functionLog = 'ツール実行: ' + logs.join('\n')
+    const toolPayload = buildToolPayload(appCalls, outputs)
+    await db
+      .prepare('INSERT INTO messages (thread_id, role, content, response_id, model, raw_response, tool_payload) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .bind(threadId, 'assistant', functionLog, completion.id || null, completion.model ?? model, JSON.stringify(completion), toolPayload)
+      .run()
+    result.messages.push({
+      id: completion.id || '',
+      role: 'assistant',
+      content: functionLog,
+      createdAt: Date.now(),
+      model: completion.model ?? model,
+    })
+
+    conversation.push({
+      role: 'assistant',
+      content: message?.content ?? '',
+      tool_calls: toolCalls.map((tc: any) => ({
+        id: tc.id,
+        type: 'function' as const,
+        function: {
+          name: tc.function.name,
+          arguments: tc.function.arguments,
+        },
+      })),
+    })
+    for (const o of outputs) {
+      conversation.push({
+        role: 'tool',
+        tool_call_id: o.callId,
+        content: o.output,
+      })
+    }
+
+    const toolChoice = round === MAX_TOOL_ROUNDS - 1 ? 'none' : 'auto'
+
+    completion = await client.chat.completions.create({
+      model: model,
+      messages: conversation,
+      tools: chatCompletionTools as any,
+      tool_choice: toolChoice,
+      ...extraParams,
+    } as any)
+    message = completion.choices[0]?.message
   }
 
   const reply = message?.content || ''

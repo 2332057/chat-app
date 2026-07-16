@@ -11,7 +11,7 @@ export async function countNoteVersions(db: D1Database, threadId: string | numbe
 }
 
 export async function readNote(db: D1Database, threadId: string | number): Promise<NoteType[] | ToolError> {
-  const { results } = await db.prepare('SELECT id, thread_id, title, content FROM notes WHERE thread_id = ? ORDER BY created_at ASC').bind(threadId).all()
+  const { results } = await db.prepare('SELECT id, thread_id, title, content FROM notes WHERE thread_id = ? ORDER BY created_at ASC, id ASC').bind(threadId).all()
   return results.length > 0 ? (results as NoteType[]) : { error: 'ノートはまだありません。' }
 }
 
@@ -50,8 +50,9 @@ export async function editNote(db: D1Database, threadId: string | number, edits:
   return inserted.results.length > 0 ? (inserted.results[0] as NoteType) : { error: 'ノートの更新に失敗しました。' }
 }
 
+// 教え子はノートに書かれたことしか知らない、というペルソナの前提を壊すため、
+// web_search などノート外の知識を取り込むツールは持たせない。
 export const tools = [
-  { type: 'web_search' },
   {
     type: 'function' as const,
     name: 'read_note',

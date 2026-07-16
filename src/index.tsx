@@ -52,8 +52,8 @@ app.get('/api/threads/:id', async (c) => {
 
     const [threadResult, messagesResult, notesResult] = await c.env.DB.batch([
       c.env.DB.prepare('SELECT * FROM threads WHERE id = ?').bind(threadId),
-      c.env.DB.prepare('SELECT * FROM messages WHERE thread_id = ? ORDER BY created_at ASC').bind(threadId),
-      c.env.DB.prepare('SELECT * FROM notes WHERE thread_id = ? ORDER BY created_at ASC').bind(threadId),
+      c.env.DB.prepare('SELECT * FROM messages WHERE thread_id = ? ORDER BY created_at ASC, id ASC').bind(threadId),
+      c.env.DB.prepare('SELECT * FROM notes WHERE thread_id = ? ORDER BY created_at ASC, id ASC').bind(threadId),
     ])
 
     const thread = threadResult.results[0]

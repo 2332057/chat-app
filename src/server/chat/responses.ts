@@ -10,6 +10,8 @@ import type { ChatProviderContext, ChatProviderResult } from './types'
 // - 'input_history': previous_response_id を使わず、DBの履歴から input を毎回組み立てて渡す
 const RESPONSES_HISTORY_MODE: 'previous_response_id' | 'input_history' = 'previous_response_id'
 
+const MAX_TOOL_ROUNDS = 3
+
 // DBの messages 履歴を Responses の input items 配列へ変換する。
 // ツールターン行は function_call + function_call_output に展開する。
 async function buildResponsesInputHistory(
@@ -34,7 +36,9 @@ async function buildResponsesInputHistory(
 }
 
 export async function runResponsesChat(ctx: ChatProviderContext): Promise<ChatProviderResult> {
-  const { client, db, threadId, content, model, previousResponseId } = ctx
+  const { client, db, threadId, content, model, previousResponseId, reasoningEffort } = ctx
+
+  const reasoningParam = reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}
 
   const result: ChatProviderResult = {
     messages: [],
@@ -47,6 +51,9 @@ export async function runResponsesChat(ctx: ChatProviderContext): Promise<ChatPr
   // previous_response_id モードでは今回の発言だけを input に渡す。
   const initialInput = useInputHistory ? await buildResponsesInputHistory(db, threadId) : content
 
+  // input_history モードでは、ツール往復のたびに function_call と実行結果を積み増していく
+  const inputItems: any[] = useInputHistory ? (Array.isArray(initialInput) ? [...initialInput] : [{ role: 'user', content: initialInput }]) : []
+
   let response = await (client as any).responses.create({
     model: model,
     instructions: SYSTEM_INSTRUCTIONS,
@@ -54,13 +61,16 @@ export async function runResponsesChat(ctx: ChatProviderContext): Promise<ChatPr
     previous_response_id: useInputHistory ? undefined : previousResponseId ?? undefined,
     tools: responseTools,
     tool_choice: 'auto',
-    reasoning: { effort: 'high' },
+    ...reasoningParam,
   })
 
   // Function Callingの処理ループ
-  const functionCalls = response.output?.filter((o: any) => o.type === 'function_call') || []
+  for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+    const functionCalls = response.output?.filter((o: any) => o.type === 'function_call') || []
+    if (functionCalls.length === 0) {
+      break
+    }
 
-  if (functionCalls.length > 0) {
     const appCalls: AppToolCall[] = functionCalls.map((call: any) => ({
       id: call.call_id || call.id,
       name: call.name,
@@ -69,53 +79,54 @@ export async function runResponsesChat(ctx: ChatProviderContext): Promise<ChatPr
     const { outputs, logs, notes } = await runAppToolCalls(db, threadId, appCalls)
     result.notes.push(...notes)
 
+    if (outputs.length === 0) {
+      break
+    }
+
     // ツールの実行結果をAPIに渡し、最終的な返答を生成させる
-    if (outputs.length > 0) {
-      const functionLog = 'ツール実行: ' + logs.join('\n')
-      const toolPayload = buildToolPayload(appCalls, outputs)
-      await db
-        .prepare('INSERT INTO messages (thread_id, role, content, response_id, model, raw_response, tool_payload) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .bind(threadId, 'assistant', functionLog, response.id || null, response.model ?? model, JSON.stringify(response), toolPayload)
-        .run()
-      result.messages.push({
-        id: response.id || '',
-        role: 'assistant',
-        content: functionLog,
-        createdAt: Date.now(),
-        model: response.model ?? model,
+    const functionLog = 'ツール実行: ' + logs.join('\n')
+    const toolPayload = buildToolPayload(appCalls, outputs)
+    await db
+      .prepare('INSERT INTO messages (thread_id, role, content, response_id, model, raw_response, tool_payload) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .bind(threadId, 'assistant', functionLog, response.id || null, response.model ?? model, JSON.stringify(response), toolPayload)
+      .run()
+    result.messages.push({
+      id: response.id || '',
+      role: 'assistant',
+      content: functionLog,
+      createdAt: Date.now(),
+      model: response.model ?? model,
+    })
+
+    const outputItems = outputs.map((o) => ({
+      type: 'function_call_output',
+      call_id: o.callId,
+      output: o.output,
+    }))
+
+    const toolChoice = round === MAX_TOOL_ROUNDS - 1 ? 'none' : 'auto'
+    const previousId = response.id
+
+    if (useInputHistory) {
+      inputItems.push(...functionCalls, ...outputItems)
+      response = await (client as any).responses.create({
+        model: model,
+        instructions: SYSTEM_INSTRUCTIONS,
+        input: inputItems,
+        tools: responseTools,
+        tool_choice: toolChoice,
+        ...reasoningParam,
       })
-
-      const outputItems = outputs.map((o) => ({
-        type: 'function_call_output',
-        call_id: o.callId,
-        output: o.output,
-      }))
-
-      if (useInputHistory) {
-        // previous_response_id を使わないので、これまでの input にモデルの function_call と
-        // その実行結果を積み増して全履歴を送る
-        const followUpInput = [
-          ...(Array.isArray(initialInput) ? initialInput : [{ role: 'user', content: initialInput }]),
-          ...functionCalls,
-          ...outputItems,
-        ]
-        response = await (client as any).responses.create({
-          model: model,
-          instructions: SYSTEM_INSTRUCTIONS,
-          input: followUpInput,
-          tools: responseTools,
-          tool_choice: 'auto',
-        })
-      } else {
-        response = await (client as any).responses.create({
-          model: model,
-          instructions: SYSTEM_INSTRUCTIONS,
-          input: outputItems,
-          previous_response_id: response.id,
-          tools: responseTools,
-          tool_choice: 'auto',
-        })
-      }
+    } else {
+      response = await (client as any).responses.create({
+        model: model,
+        instructions: SYSTEM_INSTRUCTIONS,
+        input: outputItems,
+        previous_response_id: previousId,
+        tools: responseTools,
+        tool_choice: toolChoice,
+        ...reasoningParam,
+      })
     }
   }
 
