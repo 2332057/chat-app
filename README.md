@@ -20,7 +20,7 @@ OPENAI_BASE_URL=https://your.gateway.here/compat
 OPENAI_MODEL=your-model-here
 CHAT_API_PROVIDER=responses / chat-completions
 OPENAI_MAX_TOKENS=30000
-DISABLE_OPENAI_REASONING_EFFORT=high
+OPENAI_REASONING_EFFORT=high
 ```
 
 Create db:
