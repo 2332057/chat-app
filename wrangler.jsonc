@@ -10,5 +10,14 @@
       "database_id": "1edd441f-71a2-410f-90f2-4947478e03e8",
       "migrations_dir": "migrations"
     }
-  ]
+  ],
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true
+    },
+    "traces": {
+      "enabled": true
+    }
+  }
 }
