@@ -114,7 +114,11 @@ async function main() {
     return
   }
 
-  await finalWorkerProbe(workerUrl)
+  const smokeThreadId = await finalWorkerProbe(workerUrl)
+  if (!args['keep-worker-test-thread']) {
+    await cleanupWorkerProbeThread(smokeThreadId)
+    log('Cleaned up Worker smoke test thread.')
+  }
   log(`Worker OAuth chat test passed: ${workerUrl}`)
 }
 
@@ -873,6 +877,22 @@ async function finalWorkerProbe(workerUrl) {
   if (!message) {
     fail(`Worker chat did not produce an assistant message: ${JSON.stringify(chatPayload)}`)
   }
+  return threadPayload.thread.id
+}
+
+async function cleanupWorkerProbeThread(threadId) {
+  const id = Number(threadId)
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    fail(`Worker smoke test returned an unsafe thread id: ${threadId}`)
+  }
+  await runWrangler([
+    'd1',
+    'execute',
+    'chat-app',
+    '--remote',
+    '--command',
+    `DELETE FROM messages WHERE thread_id = ${id}; DELETE FROM notes WHERE thread_id = ${id}; DELETE FROM threads WHERE id = ${id} AND title = 'Claude OAuth Cloudflare smoke';`,
+  ])
 }
 
 function sleep(ms) {
