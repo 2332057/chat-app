@@ -37,6 +37,10 @@ account that should own the Worker:
 npx wrangler login
 ```
 
+If `cloudflared` is needed for local Cloudflare Tunnel testing, install it from
+Cloudflare's platform-specific instructions:
+https://developers.cloudflare.com/tunnel/downloads/
+
 If this account does not already have the `chat-app` D1 database, create it and
 copy the returned `database_id` into `wrangler.jsonc` under the `DB` binding:
 
