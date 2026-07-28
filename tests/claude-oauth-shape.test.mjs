@@ -67,6 +67,7 @@ test('captured-envelope builder keeps only the Claude Code context reminder from
   assert.equal(body.messages.length, 2)
   assert.equal(body.messages[0].role, 'user')
   assert.match(JSON.stringify(body.messages[0].content), /<system-reminder>/)
+  assert.doesNotMatch(JSON.stringify(body.messages[0].content), /Original captured prompt/)
   assert.deepEqual(body.messages[1], { role: 'user', content: 'new app message' })
 })
 
@@ -161,7 +162,10 @@ function capturedBodyFixture() {
     messages: [
       {
         role: 'user',
-        content: [{ type: 'text', text: '<system-reminder>Claude Code context.</system-reminder>' }],
+        content: [
+          { type: 'text', text: '<system-reminder>Claude Code context.</system-reminder>' },
+          { type: 'text', text: 'Original captured prompt' },
+        ],
       },
       {
         role: 'system',

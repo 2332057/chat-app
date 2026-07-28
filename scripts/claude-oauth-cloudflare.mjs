@@ -13,7 +13,7 @@ const DEFAULT_MAX_TURNS = '3'
 const DEFAULT_MODEL = 'claude-haiku-4-5'
 const WORKER_SMOKE_THREAD_PREFIX = '__claude_oauth_smoke__'
 const APP_PROBE_PROMPT =
-  '二分探索は、整列済みの配列の中央の値と探したい値を比べ、探索範囲を半分ずつ減らす方法です。理解したことを短く返してください。'
+  'これはClaude OAuth接続確認です。学習内容ではありません。短く接続確認だけ返してください。'
 
 const isCli = Boolean(process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
 const args = isCli ? parseArgs(process.argv.slice(2)) : {}
@@ -662,8 +662,27 @@ function buildAppBodyFromCapturedEnvelope(capturedBodyText, model, maxTokens, pr
 function capturedContextMessages(body) {
   const messages = Array.isArray(body.messages) ? body.messages : []
   return messages
-    .filter((message) => message?.role === 'user' && JSON.stringify(message.content).includes('<system-reminder>'))
+    .map((message) => {
+      if (message?.role !== 'user') {
+        return null
+      }
+      const content = systemReminderContent(message.content)
+      return content ? { role: 'user', content } : null
+    })
+    .filter(Boolean)
     .slice(0, 1)
+}
+
+function systemReminderContent(content) {
+  if (Array.isArray(content)) {
+    const reminderBlocks = content.filter((block) => JSON.stringify(block).includes('<system-reminder>'))
+    return reminderBlocks.length > 0 ? reminderBlocks : null
+  }
+  if (typeof content === 'string') {
+    const match = content.match(/<system-reminder>[\s\S]*?<\/system-reminder>/)
+    return match ? match[0] : null
+  }
+  return null
 }
 
 function appSystemMessage() {

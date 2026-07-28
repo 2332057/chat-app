@@ -100,13 +100,19 @@ export function toAnthropicTools(tools: ToolDefinition[]): Array<Record<string, 
 export function capturedContextMessages(body: Record<string, unknown>): AnthropicMessage[] {
   const messages = Array.isArray(body.messages) ? body.messages : []
   return messages
-    .filter((message): message is AnthropicMessage => {
+    .map((message): AnthropicMessage | null => {
       if (!message || typeof message !== 'object') {
-        return false
+        return null
       }
       const candidate = message as AnthropicMessage
-      return candidate.role === 'user' && JSON.stringify(candidate.content).includes('<system-reminder>')
+      if (candidate.role !== 'user') {
+        return null
+      }
+
+      const content = systemReminderContent(candidate.content)
+      return content ? { role: 'user', content } : null
     })
+    .filter((message): message is AnthropicMessage => Boolean(message))
     .slice(0, 1)
 }
 
@@ -128,6 +134,16 @@ export function appSystemMessage(systemInstructions: string): AnthropicMessage {
 
 function deepClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
+}
+
+function systemReminderContent(content: AnthropicMessage['content']): AnthropicMessage['content'] | null {
+  if (Array.isArray(content)) {
+    const reminderBlocks = content.filter((block) => JSON.stringify(block).includes('<system-reminder>'))
+    return reminderBlocks.length > 0 ? reminderBlocks : null
+  }
+
+  const match = content.match(/<system-reminder>[\s\S]*?<\/system-reminder>/)
+  return match ? match[0] : null
 }
 
 function appendTopLevelSystem(body: Record<string, unknown>, systemInstructions: string): void {
