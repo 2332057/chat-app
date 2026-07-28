@@ -68,6 +68,10 @@ stores the non-secret captured envelope in remote D1 table
 `ANTHROPIC_OAUTH_TOKEN` Worker secret, applies remote D1 migrations, seeds user
 `1`, and verifies `/api/chat`.
 
+For Claude OAuth deployments, use this helper instead of `npm run deploy`.
+Plain Wrangler deploys do not include the Claude OAuth Worker variables and can
+leave the Worker on the default OpenAI provider path.
+
 By default the Claude OAuth provider deploys with `claude-haiku-4-5` for lower
 latency. To use a different Claude model, pass `--model` to the helper or set
 `ANTHROPIC_MODEL` in the Worker environment.
