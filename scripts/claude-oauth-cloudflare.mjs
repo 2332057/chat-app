@@ -645,17 +645,8 @@ function buildAppBodyFromCapturedEnvelope(capturedBodyText, model, maxTokens, pr
   delete body.output_config
   delete body.fallbacks
   delete body.context_management
-  if (usesTopLevelAppSystem(model)) {
-    appendTopLevelSystem(body, readAppInstructions())
-    body.messages = [...capturedContextMessages(body), { role: 'user', content: prompt }]
-  } else {
-    markLastCacheableTextBlock(body.system)
-    body.messages = [
-      ...capturedContextMessages(body),
-      { role: 'user', content: prompt },
-      appSystemMessage(),
-    ]
-  }
+  appendTopLevelSystem(body, readAppInstructions())
+  body.messages = [...capturedContextMessages(body), { role: 'user', content: prompt }]
   body.tools = appToolDefinitions()
   body.tool_choice = { type: 'auto' }
   return body
@@ -708,10 +699,6 @@ function appToolDefinitions() {
   return tools
 }
 
-function usesTopLevelAppSystem(model) {
-  return model.includes('haiku')
-}
-
 function appendTopLevelSystem(body, systemInstructions) {
   const system = Array.isArray(body.system) ? body.system : []
   system.push({
@@ -723,22 +710,6 @@ function appendTopLevelSystem(body, systemInstructions) {
     },
   })
   body.system = system
-}
-
-function markLastCacheableTextBlock(blocks) {
-  if (!Array.isArray(blocks)) {
-    return
-  }
-  for (let index = blocks.length - 1; index >= 0; index--) {
-    const block = blocks[index]
-    if (block && typeof block === 'object' && block.type === 'text' && block.text) {
-      block.cache_control = {
-        type: 'ephemeral',
-        ttl: '1h',
-      }
-      return
-    }
-  }
 }
 
 async function assertAnthropicOk(response, label) {

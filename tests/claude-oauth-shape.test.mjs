@@ -36,15 +36,17 @@ test('script and Worker shape builders produce the same captured-envelope app bo
   })
 
   assert.deepEqual(scriptBody, workerBody)
-  assert.equal(scriptBody.system.at(-1).text, captured.system.at(-1).text)
+  assert.equal(scriptBody.system.at(-2).text, captured.system.at(-1).text)
+  assert.equal(scriptBody.system.at(-1).text, systemInstructions)
   assert.equal(scriptBody.stream, false)
   assert.equal('thinking' in scriptBody, false)
   assert.equal('output_config' in scriptBody, false)
   assert.equal('fallbacks' in scriptBody, false)
   assert.equal('context_management' in scriptBody, false)
-  assert.equal(scriptBody.messages.at(-1).role, 'system')
-  assert.equal(scriptBody.messages.at(-1).content[0].text, systemInstructions)
+  assert.equal(scriptBody.system.at(-1).text, systemInstructions)
   assert.equal(scriptBody.system.at(-1).cache_control.type, 'ephemeral')
+  assert.equal(scriptBody.messages.some((message) => message.role === 'system'), false)
+  assert.deepEqual(scriptBody.messages.at(-1), { role: 'user', content: prompt })
   assert.equal(scriptBody.tools[0].input_schema.$schema, 'https://json-schema.org/draft/2020-12/schema')
   assert.equal(scriptBody.tools.at(-1).cache_control.type, 'ephemeral')
 })
@@ -62,11 +64,10 @@ test('captured-envelope builder keeps only the Claude Code context reminder from
     tools: [{ type: 'function', name: 'tool_one', description: 'A test tool.', parameters: { type: 'object', properties: {} } }],
   })
 
-  assert.equal(body.messages.length, 3)
+  assert.equal(body.messages.length, 2)
   assert.equal(body.messages[0].role, 'user')
   assert.match(JSON.stringify(body.messages[0].content), /<system-reminder>/)
   assert.deepEqual(body.messages[1], { role: 'user', content: 'new app message' })
-  assert.equal(body.messages[2].role, 'system')
 })
 
 test('captured-envelope builder removes tools when the next tool round is not allowed', async () => {
@@ -85,7 +86,7 @@ test('captured-envelope builder removes tools when the next tool round is not al
   assert.equal(body.tool_choice, undefined)
 })
 
-test('haiku app shape uses top-level app system instead of message-level system', async () => {
+test('app shape uses top-level app system instead of message-level system', async () => {
   const shape = await shapeModulePromise
   const captured = capturedBodyFixture()
   const body = shape.buildCapturedOAuthBody({

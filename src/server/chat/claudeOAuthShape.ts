@@ -65,13 +65,8 @@ export function buildCapturedOAuthBody({
   delete body.output_config
   delete body.fallbacks
   delete body.context_management
-  if (usesTopLevelAppSystem(model)) {
-    appendTopLevelSystem(body, systemInstructions)
-    body.messages = [...capturedContextMessages(templateBody), ...messages]
-  } else {
-    markLastCacheableTextBlock(body.system)
-    body.messages = [...capturedContextMessages(templateBody), ...messages, appSystemMessage(systemInstructions)]
-  }
+  appendTopLevelSystem(body, systemInstructions)
+  body.messages = [...capturedContextMessages(templateBody), ...messages]
   if (allowTools) {
     body.tools = toAnthropicTools(tools)
     body.tool_choice = { type: 'auto' }
@@ -135,10 +130,6 @@ function deepClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
 }
 
-function usesTopLevelAppSystem(model: string): boolean {
-  return model.includes('haiku')
-}
-
 function appendTopLevelSystem(body: Record<string, unknown>, systemInstructions: string): void {
   const system = Array.isArray(body.system) ? body.system : []
   system.push({
@@ -150,20 +141,4 @@ function appendTopLevelSystem(body: Record<string, unknown>, systemInstructions:
     },
   })
   body.system = system
-}
-
-function markLastCacheableTextBlock(blocks: unknown): void {
-  if (!Array.isArray(blocks)) {
-    return
-  }
-  for (let index = blocks.length - 1; index >= 0; index--) {
-    const block = blocks[index]
-    if (block && typeof block === 'object' && (block as Record<string, unknown>).type === 'text' && (block as Record<string, unknown>).text) {
-      ;(block as Record<string, unknown>).cache_control = {
-        type: 'ephemeral',
-        ttl: '1h',
-      }
-      return
-    }
-  }
 }
