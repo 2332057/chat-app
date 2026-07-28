@@ -10,6 +10,7 @@ import { pathToFileURL } from 'node:url'
 
 const DEFAULT_MAX_TOKENS = '4096'
 const DEFAULT_MAX_TURNS = '3'
+const DEFAULT_MODEL = 'claude-haiku-4-5'
 const APP_PROBE_PROMPT =
   '二分探索は、整列済みの配列の中央の値と探したい値を比べ、探索範囲を半分ずつ減らす方法です。理解したことを短く返してください。'
 
@@ -39,13 +40,13 @@ async function main() {
   validateCapturedRequest(captured, claudeVersion)
 
   const token = captured.oauthToken
-  let model = getArg('model') || captured.body?.model
+  let model = getArg('model', DEFAULT_MODEL)
   if (!model) {
     fail('Could not determine a Claude model from the captured request. Pass --model explicitly.')
   }
 
   log(
-    `Captured Claude request envelope. Model: ${model}. Headers: ${Object.keys(captured.headers)
+    `Captured Claude request envelope. Captured model: ${captured.body?.model || '<missing>'}. App model: ${model}. Headers: ${Object.keys(captured.headers)
       .sort()
       .join(', ')}. Body: ${formatCapturedBodySummary(captured.body)}.`,
   )
@@ -641,11 +642,20 @@ function buildAppBodyFromCapturedEnvelope(capturedBodyText, model, maxTokens, pr
   body.max_tokens = maxTokens
   body.stream = false
   delete body.thinking
-  body.messages = [
-    ...capturedContextMessages(body),
-    { role: 'user', content: prompt },
-    appSystemMessage(),
-  ]
+  delete body.output_config
+  delete body.fallbacks
+  delete body.context_management
+  if (usesTopLevelAppSystem(model)) {
+    appendTopLevelSystem(body, readAppInstructions())
+    body.messages = [...capturedContextMessages(body), { role: 'user', content: prompt }]
+  } else {
+    markLastCacheableTextBlock(body.system)
+    body.messages = [
+      ...capturedContextMessages(body),
+      { role: 'user', content: prompt },
+      appSystemMessage(),
+    ]
+  }
   body.tools = appToolDefinitions()
   body.tool_choice = { type: 'auto' }
   return body
@@ -679,7 +689,7 @@ function readAppInstructions() {
 }
 
 function appToolDefinitions() {
-  return JSON.parse(fs.readFileSync(path.join(process.cwd(), 'src', 'tools.json'), 'utf8'))
+  const tools = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'src', 'tools.json'), 'utf8'))
     .filter((tool) => tool.type === 'function')
     .map((tool) => ({
       name: tool.name,
@@ -689,6 +699,46 @@ function appToolDefinitions() {
         ...tool.parameters,
       },
     }))
+  if (tools.length) {
+    tools[tools.length - 1].cache_control = {
+      type: 'ephemeral',
+      ttl: '1h',
+    }
+  }
+  return tools
+}
+
+function usesTopLevelAppSystem(model) {
+  return model.includes('haiku')
+}
+
+function appendTopLevelSystem(body, systemInstructions) {
+  const system = Array.isArray(body.system) ? body.system : []
+  system.push({
+    type: 'text',
+    text: systemInstructions,
+    cache_control: {
+      type: 'ephemeral',
+      ttl: '1h',
+    },
+  })
+  body.system = system
+}
+
+function markLastCacheableTextBlock(blocks) {
+  if (!Array.isArray(blocks)) {
+    return
+  }
+  for (let index = blocks.length - 1; index >= 0; index--) {
+    const block = blocks[index]
+    if (block && typeof block === 'object' && block.type === 'text' && block.text) {
+      block.cache_control = {
+        type: 'ephemeral',
+        ttl: '1h',
+      }
+      return
+    }
+  }
 }
 
 async function assertAnthropicOk(response, label) {

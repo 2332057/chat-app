@@ -1,4 +1,5 @@
 export const MODEL = 'gpt-5.5'
+export const ANTHROPIC_MODEL = 'claude-haiku-4-5'
 
 export type OpenAIChatProvider = 'responses' | 'chat-completions'
 export type ChatApiProvider = OpenAIChatProvider | 'claude-oauth'
@@ -59,7 +60,7 @@ export function resolveChatClientConfig(env: {
     anthropic: {
       oauthToken: env.ANTHROPIC_OAUTH_TOKEN ?? env.CLAUDE_CODE_OAUTH_TOKEN,
       baseURL: env.ANTHROPIC_BASE_URL,
-      model: env.ANTHROPIC_MODEL,
+      model: env.ANTHROPIC_MODEL ?? ANTHROPIC_MODEL,
       maxTokens: env.ANTHROPIC_MAX_TOKENS ? Number(env.ANTHROPIC_MAX_TOKENS) : undefined,
       version: env.ANTHROPIC_VERSION,
       beta: env.ANTHROPIC_BETA,

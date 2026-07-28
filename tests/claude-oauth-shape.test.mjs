@@ -36,12 +36,17 @@ test('script and Worker shape builders produce the same captured-envelope app bo
   })
 
   assert.deepEqual(scriptBody, workerBody)
-  assert.deepEqual(scriptBody.system, captured.system)
+  assert.equal(scriptBody.system.at(-1).text, captured.system.at(-1).text)
   assert.equal(scriptBody.stream, false)
   assert.equal('thinking' in scriptBody, false)
+  assert.equal('output_config' in scriptBody, false)
+  assert.equal('fallbacks' in scriptBody, false)
+  assert.equal('context_management' in scriptBody, false)
   assert.equal(scriptBody.messages.at(-1).role, 'system')
   assert.equal(scriptBody.messages.at(-1).content[0].text, systemInstructions)
+  assert.equal(scriptBody.system.at(-1).cache_control.type, 'ephemeral')
   assert.equal(scriptBody.tools[0].input_schema.$schema, 'https://json-schema.org/draft/2020-12/schema')
+  assert.equal(scriptBody.tools.at(-1).cache_control.type, 'ephemeral')
 })
 
 test('captured-envelope builder keeps only the Claude Code context reminder from the template messages', async () => {
@@ -78,6 +83,24 @@ test('captured-envelope builder removes tools when the next tool round is not al
 
   assert.equal(body.tools, undefined)
   assert.equal(body.tool_choice, undefined)
+})
+
+test('haiku app shape uses top-level app system instead of message-level system', async () => {
+  const shape = await shapeModulePromise
+  const captured = capturedBodyFixture()
+  const body = shape.buildCapturedOAuthBody({
+    templateBody: captured,
+    model: 'claude-haiku-4-5',
+    maxTokens: 1024,
+    messages: [{ role: 'user', content: 'new app message' }],
+    allowTools: true,
+    systemInstructions: 'app instructions',
+    tools: [{ type: 'function', name: 'tool_one', description: 'A test tool.', parameters: { type: 'object', properties: {} } }],
+  })
+
+  assert.equal(body.system.at(-1).text, 'app instructions')
+  assert.equal(body.system.at(-1).cache_control.type, 'ephemeral')
+  assert.equal(body.messages.some((message) => message.role === 'system'), false)
 })
 
 test('captured headers forward Claude request identity but never auth or hop-by-hop headers', () => {
@@ -130,6 +153,9 @@ function capturedBodyFixture() {
     max_tokens: 20000,
     stream: true,
     thinking: { type: 'enabled', budget_tokens: 16000 },
+    output_config: { effort: 'high' },
+    fallbacks: [{ model: 'claude-fable-5' }],
+    context_management: { edits: [{ type: 'clear_thinking_20251015' }] },
     system: [{ type: 'text', text: 'Claude Code top-level system envelope' }],
     messages: [
       {

@@ -4,6 +4,7 @@ import { buildToolPayload, chatCompletionTools, runAppToolCalls, toChatCompletio
 import type { AppToolCall } from './toolCalls'
 import { EmptyReplyError } from './types'
 import type { ChatProviderContext, ChatProviderResult } from './types'
+import { stripHtmlComments } from './sanitize'
 
 const MAX_TOOL_ROUNDS = 3
 
@@ -114,7 +115,7 @@ export async function runChatCompletionsChat(ctx: ChatProviderContext): Promise<
     message = completion.choices[0]?.message
   }
 
-  const reply = message?.content || ''
+  const reply = stripHtmlComments(message?.content || '')
   if (!reply) {
     if (completion.choices[0]?.finish_reason === 'length') {
       throw new Error('モデルの出力がトークン上限で打ち切られました（OPENAI_MAX_TOKENS の引き上げ、または reasoning_effort を下げてください）')

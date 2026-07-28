@@ -4,6 +4,7 @@ import { buildToolPayload, responseTools, runAppToolCalls, toResponsesInputItems
 import type { AppToolCall } from './toolCalls'
 import { EmptyReplyError } from './types'
 import type { ChatProviderContext, ChatProviderResult } from './types'
+import { stripHtmlComments } from './sanitize'
 
 // Responses API の履歴の渡し方をハードコードで切り替える。
 // - 'previous_response_id': サーバ側に状態を持たせ、直前の response_id だけ渡す（既定）
@@ -141,6 +142,7 @@ export async function runResponsesChat(ctx: ChatProviderContext): Promise<ChatPr
       reply = msg.content.map((c: any) => c.text || c.output_text || '').join('')
     }
   }
+  reply = stripHtmlComments(reply)
 
   if (!reply) {
     throw new EmptyReplyError()

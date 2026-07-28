@@ -7,6 +7,7 @@ import type { ChatProviderContext, ChatProviderResult } from './types'
 import { tools } from '../../tools'
 import { buildCapturedOAuthBody, buildDefaultOAuthBody } from './claudeOAuthShape'
 import type { AnthropicMessage, ClaudeOAuthTemplate } from './claudeOAuthShape'
+import { stripHtmlComments } from './sanitize'
 
 const CLAUDE_OAUTH_RESPONSE_PREFIX = 'claude-oauth:'
 const DEFAULT_ANTHROPIC_BASE_URL = 'https://api.anthropic.com'
@@ -23,6 +24,12 @@ type AnthropicMessageResponse = {
   id?: string
   model?: string
   content?: AnthropicContentBlock[]
+  usage?: {
+    input_tokens?: number
+    output_tokens?: number
+    cache_creation_input_tokens?: number
+    cache_read_input_tokens?: number
+  }
   error?: {
     type?: string
     message?: string
@@ -155,10 +162,12 @@ async function createAnthropicMessage(ctx: ChatProviderContext, messages: Anthro
         tools,
       })
 
+  const requestBody = JSON.stringify(body)
+  const fetchStart = performance.now()
   const response = await fetch(joinUrl(baseURL, '/v1/messages'), {
     method: 'POST',
     headers: template ? buildCapturedOAuthHeaders(ctx, template) : buildOAuthHeaders(ctx),
-    body: JSON.stringify(body),
+    body: requestBody,
   })
 
   const responseText = await response.text()
@@ -172,6 +181,19 @@ async function createAnthropicMessage(ctx: ChatProviderContext, messages: Anthro
     const detail = payload.error?.message || JSON.stringify(payload)
     throw new AnthropicOAuthError(response.status, payload.error?.type, detail)
   }
+  logTiming('anthropic_fetch', {
+    ms: elapsed(fetchStart),
+    status: response.status,
+    model: ctx.model,
+    allowTools,
+    template: template ? 'd1' : 'default',
+    requestBytes: requestBody.length,
+    responseBytes: responseText.length,
+    inputTokens: payload.usage?.input_tokens,
+    outputTokens: payload.usage?.output_tokens,
+    cacheCreationInputTokens: payload.usage?.cache_creation_input_tokens,
+    cacheReadInputTokens: payload.usage?.cache_read_input_tokens,
+  })
   return payload
 }
 
@@ -180,8 +202,10 @@ async function loadClaudeOAuthTemplate(ctx: ChatProviderContext): Promise<Claude
     return null
   }
   if (cachedTemplate) {
+    logTiming('claude_oauth_template', { source: 'memory' })
     return cachedTemplate
   }
+  const startedAt = performance.now()
   const row = await ctx.db.prepare('SELECT headers, body FROM claude_oauth_template WHERE id = 1').first<ClaudeOAuthTemplateRow>()
   if (!row) {
     throw new Error('CLAUDE_OAUTH_TEMPLATE_SOURCE=d1 is set, but claude_oauth_template id=1 was not found.')
@@ -190,6 +214,7 @@ async function loadClaudeOAuthTemplate(ctx: ChatProviderContext): Promise<Claude
     headers: JSON.parse(row.headers) as Record<string, string>,
     body: JSON.parse(row.body) as Record<string, unknown>,
   }
+  logTiming('claude_oauth_template', { source: 'd1', ms: elapsed(startedAt) })
   return cachedTemplate
 }
 
@@ -201,7 +226,9 @@ export async function runClaudeOAuthChat(ctx: ChatProviderContext): Promise<Chat
     notes: [],
   }
 
+  const historyStart = performance.now()
   const messages = await buildMessageHistory(db, threadId)
+  logTiming('d1_message_history', { ms: elapsed(historyStart), messages: messages.length })
   let response = await createAnthropicMessage(ctx, messages, true)
 
   for (let round = 0; round < maxToolRounds; round++) {
@@ -210,15 +237,19 @@ export async function runClaudeOAuthChat(ctx: ChatProviderContext): Promise<Chat
       break
     }
 
+    const toolStart = performance.now()
     const { outputs, logs, notes } = await runAppToolCalls(db, threadId, appCalls)
+    logTiming('app_tool_calls', { ms: elapsed(toolStart), round, calls: appCalls.length, notes: notes.length })
     result.notes.push(...notes)
 
     const functionLog = 'ツール実行: ' + logs.join('\n')
     const toolPayload = buildToolPayload(appCalls, outputs)
+    const toolAuditStart = performance.now()
     await db
       .prepare('INSERT INTO messages (thread_id, role, content, response_id, model, raw_response, tool_payload) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .bind(threadId, 'assistant', functionLog, response.id || null, response.model ?? model, JSON.stringify(response), toolPayload)
       .run()
+    logTiming('d1_tool_audit_insert', { ms: elapsed(toolAuditStart), round })
     result.messages.push({
       id: response.id || '',
       role: 'assistant',
@@ -243,15 +274,17 @@ export async function runClaudeOAuthChat(ctx: ChatProviderContext): Promise<Chat
     response = await createAnthropicMessage(ctx, messages, round < maxToolRounds - 1)
   }
 
-  const reply = extractReply(response)
+  const reply = stripHtmlComments(extractReply(response))
   if (!reply) {
     throw new EmptyReplyError()
   }
 
+  const assistantInsertStart = performance.now()
   await db
     .prepare('INSERT INTO messages (thread_id, role, content, response_id, model, raw_response) VALUES (?, ?, ?, ?, ?, ?)')
     .bind(threadId, 'assistant', reply, response.id || null, response.model ?? model, JSON.stringify(response))
     .run()
+  logTiming('d1_assistant_message_insert', { ms: elapsed(assistantInsertStart) })
 
   result.messages.push({
     id: response.id || '',
@@ -266,4 +299,18 @@ export async function runClaudeOAuthChat(ctx: ChatProviderContext): Promise<Chat
   }
 
   return result
+}
+
+function logTiming(name: string, fields: Record<string, unknown>): void {
+  console.log(
+    JSON.stringify({
+      event: 'claude_oauth_timing',
+      name,
+      ...fields,
+    }),
+  )
+}
+
+function elapsed(startedAt: number): number {
+  return Math.round((performance.now() - startedAt) * 10) / 10
 }

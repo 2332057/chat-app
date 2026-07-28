@@ -68,6 +68,10 @@ stores the non-secret captured envelope in remote D1 table
 `ANTHROPIC_OAUTH_TOKEN` Worker secret, applies remote D1 migrations, seeds user
 `1`, and verifies `/api/chat`.
 
+By default the Claude OAuth provider deploys with `claude-haiku-4-5` for lower
+latency. To use a different Claude model, pass `--model` to the helper or set
+`ANTHROPIC_MODEL` in the Worker environment.
+
 When the helper deploys the Worker, it usually detects the new `workers.dev`
 URL from Wrangler output. If deploying was skipped or the URL cannot be
 detected, pass it explicitly:
