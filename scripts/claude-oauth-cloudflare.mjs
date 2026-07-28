@@ -11,6 +11,7 @@ import { pathToFileURL } from 'node:url'
 const DEFAULT_MAX_TOKENS = '4096'
 const DEFAULT_MAX_TURNS = '3'
 const DEFAULT_MODEL = 'claude-haiku-4-5'
+const WORKER_SMOKE_THREAD_PREFIX = '__claude_oauth_smoke__'
 const APP_PROBE_PROMPT =
   '二分探索は、整列済みの配列の中央の値と探したい値を比べ、探索範囲を半分ずつ減らす方法です。理解したことを短く返してください。'
 
@@ -114,11 +115,13 @@ async function main() {
     return
   }
 
-  const smokeThreadId = await finalWorkerProbe(workerUrl)
   if (!args['keep-worker-test-thread']) {
-    await cleanupWorkerProbeThread(smokeThreadId)
-    log('Cleaned up Worker smoke test thread.')
+    await cleanupStaleWorkerProbeThreads()
+    log('Removed stale Worker smoke test threads.')
   }
+  await finalWorkerProbe(workerUrl, {
+    cleanup: !args['keep-worker-test-thread'],
+  })
   log(`Worker OAuth chat test passed: ${workerUrl}`)
 }
 
@@ -850,37 +853,56 @@ function normalizeWorkerUrl(url) {
   return url ? url.replace(/\/+$/, '') : ''
 }
 
-async function finalWorkerProbe(workerUrl) {
+async function finalWorkerProbe(workerUrl, { cleanup }) {
+  const title = `${WORKER_SMOKE_THREAD_PREFIX}:${Date.now()}`
   const threadResponse = await fetch(`${workerUrl}/api/threads`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title: 'Claude OAuth Cloudflare smoke' }),
+    body: JSON.stringify({ title }),
   })
   const threadPayload = await threadResponse.json().catch(() => ({}))
   if (!threadResponse.ok || !threadPayload?.thread?.id) {
     fail(`Worker thread creation failed: HTTP ${threadResponse.status}: ${JSON.stringify(threadPayload)}`)
   }
 
-  const chatResponse = await fetch(`${workerUrl}/api/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      threadId: threadPayload.thread.id,
-      content: APP_PROBE_PROMPT,
-    }),
-  })
-  const chatPayload = await chatResponse.json().catch(() => ({}))
-  if (!chatResponse.ok || chatPayload.error) {
-    fail(`Worker chat failed: HTTP ${chatResponse.status}: ${JSON.stringify(chatPayload)}`)
+  try {
+    const chatResponse = await fetch(`${workerUrl}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        threadId: threadPayload.thread.id,
+        content: APP_PROBE_PROMPT,
+      }),
+    })
+    const chatPayload = await chatResponse.json().catch(() => ({}))
+    if (!chatResponse.ok || chatPayload.error) {
+      throw new Error(`Worker chat failed: HTTP ${chatResponse.status}: ${JSON.stringify(chatPayload)}`)
+    }
+    const message = (chatPayload.messages || []).find((candidate) => candidate.role === 'assistant' && typeof candidate.content === 'string' && candidate.content.trim())
+    if (!message) {
+      throw new Error(`Worker chat did not produce an assistant message: ${JSON.stringify(chatPayload)}`)
+    }
+  } finally {
+    if (cleanup) {
+      await cleanupWorkerProbeThread(threadPayload.thread.id, title)
+      log('Cleaned up Worker smoke test thread.')
+    }
   }
-  const message = (chatPayload.messages || []).find((candidate) => candidate.role === 'assistant' && typeof candidate.content === 'string' && candidate.content.trim())
-  if (!message) {
-    fail(`Worker chat did not produce an assistant message: ${JSON.stringify(chatPayload)}`)
-  }
-  return threadPayload.thread.id
 }
 
-async function cleanupWorkerProbeThread(threadId) {
+async function cleanupStaleWorkerProbeThreads() {
+  const prefix = sqlString(`${WORKER_SMOKE_THREAD_PREFIX}:%`)
+  await runWrangler([
+    'd1',
+    'execute',
+    'chat-app',
+    '--remote',
+    '--command',
+    `DELETE FROM messages WHERE thread_id IN (SELECT id FROM threads WHERE title LIKE ${prefix}); DELETE FROM notes WHERE thread_id IN (SELECT id FROM threads WHERE title LIKE ${prefix}); DELETE FROM threads WHERE title LIKE ${prefix};`,
+  ])
+}
+
+async function cleanupWorkerProbeThread(threadId, title) {
   const id = Number(threadId)
   if (!Number.isSafeInteger(id) || id <= 0) {
     fail(`Worker smoke test returned an unsafe thread id: ${threadId}`)
@@ -891,7 +913,7 @@ async function cleanupWorkerProbeThread(threadId) {
     'chat-app',
     '--remote',
     '--command',
-    `DELETE FROM messages WHERE thread_id = ${id}; DELETE FROM notes WHERE thread_id = ${id}; DELETE FROM threads WHERE id = ${id} AND title = 'Claude OAuth Cloudflare smoke';`,
+    `DELETE FROM messages WHERE thread_id = ${id}; DELETE FROM notes WHERE thread_id = ${id}; DELETE FROM threads WHERE id = ${id} AND title = ${sqlString(title)};`,
   ])
 }
 
