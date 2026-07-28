@@ -37,18 +37,33 @@ and Claude Code is logged in:
 node scripts/claude-oauth-cloudflare.mjs --apply --worker-url https://your-worker.example
 ```
 
-The helper is the authoritative setup path. It captures the local `claude -p`
-OAuth request headers, verifies that the captured header shape works against the
-Messages API, uploads `ANTHROPIC_OAUTH_TOKEN` as a Worker secret, deploys the
-Worker with the captured Claude Code identity settings, applies remote D1
-migrations, seeds user `1`, and verifies a real note tool call through
-`/api/chat`.
+The helper is the authoritative setup path. It captures the full local
+`claude -p` Messages API request envelope, replays that exact envelope, verifies
+the app-shaped request built from `src/instructions.md` and `src/tools.json`,
+stores the non-secret captured envelope in remote D1 table
+`claude_oauth_template`, deploys the Worker with
+`CLAUDE_OAUTH_TEMPLATE_SOURCE=d1`, uploads the captured bearer token as the
+`ANTHROPIC_OAUTH_TOKEN` Worker secret, applies remote D1 migrations, seeds user
+`1`, and verifies `/api/chat`.
 
 To validate auth and header capture without changing Cloudflare:
 
 ```sh
 node scripts/claude-oauth-cloudflare.mjs
 ```
+
+Future changes to the Claude OAuth path should pass the CI-safe checks:
+
+```sh
+npx tsc --noEmit
+node --test tests/*.mjs
+npm run build
+```
+
+The CI-safe tests do not require Claude Code. The local helper test above does
+require the `claude` binary, an active Claude subscription login, network access
+to Anthropic, and a real Cloudflare account when `--apply` is used; keep it as a
+local release gate rather than a CI job.
 
 Create db:
 

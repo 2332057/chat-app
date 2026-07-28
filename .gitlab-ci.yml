@@ -1,0 +1,12 @@
+image: node:22
+
+stages:
+  - test
+
+test:
+  stage: test
+  script:
+    - npm ci
+    - npx tsc --noEmit
+    - node --test tests/*.mjs
+    - npm run build

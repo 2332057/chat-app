@@ -34,6 +34,7 @@ export type ChatProviderContext = {
     xApp?: string
     claudeCodeVersion?: string
     maxTurns?: number
+    templateSource?: string
   }
 }
 

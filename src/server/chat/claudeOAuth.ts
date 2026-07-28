@@ -5,6 +5,8 @@ import type { AppToolCall } from './toolCalls'
 import { EmptyReplyError } from './types'
 import type { ChatProviderContext, ChatProviderResult } from './types'
 import { tools } from '../../tools'
+import { buildCapturedOAuthBody, buildDefaultOAuthBody } from './claudeOAuthShape'
+import type { AnthropicMessage, ClaudeOAuthTemplate } from './claudeOAuthShape'
 
 const CLAUDE_OAUTH_RESPONSE_PREFIX = 'claude-oauth:'
 const DEFAULT_ANTHROPIC_BASE_URL = 'https://api.anthropic.com'
@@ -12,11 +14,6 @@ const DEFAULT_ANTHROPIC_VERSION = '2023-06-01'
 const DEFAULT_MAX_TOKENS = 4096
 const DEFAULT_MAX_TOOL_ROUNDS = 3
 const DEFAULT_CLAUDE_CODE_VERSION = '2.1.75'
-
-type AnthropicMessage = {
-  role: 'user' | 'assistant'
-  content: string | Array<Record<string, unknown>>
-}
 
 type AnthropicContentBlock = Record<string, unknown> & {
   type?: string
@@ -29,6 +26,25 @@ type AnthropicMessageResponse = {
   error?: {
     type?: string
     message?: string
+  }
+}
+
+type ClaudeOAuthTemplateRow = {
+  headers: string
+  body: string
+}
+
+let cachedTemplate: ClaudeOAuthTemplate | null = null
+
+export class AnthropicOAuthError extends Error {
+  status: number
+  type?: string
+
+  constructor(status: number, type: string | undefined, message: string) {
+    super(`Anthropic OAuth request returned HTTP ${status}${message ? `: ${message}` : ''}`)
+    this.name = 'AnthropicOAuthError'
+    this.status = status
+    this.type = type
   }
 }
 
@@ -62,14 +78,21 @@ function buildOAuthHeaders(ctx: ChatProviderContext): Record<string, string> {
   return headers
 }
 
-function toAnthropicTools(): Array<Record<string, unknown>> {
-  return tools
-    .filter((tool) => tool.type === 'function')
-    .map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      input_schema: tool.parameters,
-    }))
+function buildCapturedOAuthHeaders(ctx: ChatProviderContext, template: ClaudeOAuthTemplate): Record<string, string> {
+  const headers = buildOAuthHeaders(ctx)
+  for (const [name, value] of Object.entries(template.headers)) {
+    if (!value || shouldSkipCapturedHeader(name)) {
+      continue
+    }
+    headers[name] = value
+  }
+  headers.Authorization = `Bearer ${ctx.anthropic?.oauthToken}`
+  headers['Content-Type'] = 'application/json'
+  return headers
+}
+
+function shouldSkipCapturedHeader(name: string): boolean {
+  return ['authorization', 'content-length', 'host', 'connection', 'accept-encoding'].includes(name.toLowerCase())
 }
 
 async function buildMessageHistory(db: ChatProviderContext['db'], threadId: ChatProviderContext['threadId']): Promise<AnthropicMessage[]> {
@@ -111,26 +134,30 @@ function extractReply(response: AnthropicMessageResponse): string {
 
 async function createAnthropicMessage(ctx: ChatProviderContext, messages: AnthropicMessage[], allowTools: boolean): Promise<AnthropicMessageResponse> {
   const baseURL = ctx.anthropic?.baseURL || DEFAULT_ANTHROPIC_BASE_URL
-  const body: Record<string, unknown> = {
-    model: ctx.model,
-    max_tokens: ctx.maxTokens ?? DEFAULT_MAX_TOKENS,
-    system: [
-      {
-        type: 'text',
-        text: SYSTEM_INSTRUCTIONS,
-      },
-    ],
-    messages,
-  }
-
-  if (allowTools) {
-    body.tools = toAnthropicTools()
-    body.tool_choice = { type: 'auto' }
-  }
+  const template = await loadClaudeOAuthTemplate(ctx)
+  const maxTokens = ctx.maxTokens ?? DEFAULT_MAX_TOKENS
+  const body = template
+    ? buildCapturedOAuthBody({
+        templateBody: template.body,
+        model: ctx.model,
+        maxTokens,
+        messages,
+        allowTools,
+        systemInstructions: SYSTEM_INSTRUCTIONS,
+        tools,
+      })
+    : buildDefaultOAuthBody({
+        model: ctx.model,
+        maxTokens,
+        messages,
+        allowTools,
+        systemInstructions: SYSTEM_INSTRUCTIONS,
+        tools,
+      })
 
   const response = await fetch(joinUrl(baseURL, '/v1/messages'), {
     method: 'POST',
-    headers: buildOAuthHeaders(ctx),
+    headers: template ? buildCapturedOAuthHeaders(ctx, template) : buildOAuthHeaders(ctx),
     body: JSON.stringify(body),
   })
 
@@ -143,9 +170,27 @@ async function createAnthropicMessage(ctx: ChatProviderContext, messages: Anthro
   }
   if (!response.ok) {
     const detail = payload.error?.message || JSON.stringify(payload)
-    throw new Error(`Anthropic OAuth request returned HTTP ${response.status}${detail ? `: ${detail}` : ''}`)
+    throw new AnthropicOAuthError(response.status, payload.error?.type, detail)
   }
   return payload
+}
+
+async function loadClaudeOAuthTemplate(ctx: ChatProviderContext): Promise<ClaudeOAuthTemplate | null> {
+  if (ctx.anthropic?.templateSource !== 'd1') {
+    return null
+  }
+  if (cachedTemplate) {
+    return cachedTemplate
+  }
+  const row = await ctx.db.prepare('SELECT headers, body FROM claude_oauth_template WHERE id = 1').first<ClaudeOAuthTemplateRow>()
+  if (!row) {
+    throw new Error('CLAUDE_OAUTH_TEMPLATE_SOURCE=d1 is set, but claude_oauth_template id=1 was not found.')
+  }
+  cachedTemplate = {
+    headers: JSON.parse(row.headers) as Record<string, string>,
+    body: JSON.parse(row.body) as Record<string, unknown>,
+  }
+  return cachedTemplate
 }
 
 export async function runClaudeOAuthChat(ctx: ChatProviderContext): Promise<ChatProviderResult> {

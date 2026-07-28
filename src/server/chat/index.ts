@@ -16,5 +16,6 @@ export function runChat(provider: ChatApiProvider, ctx: ChatProviderContext): Pr
 
 export { resolveChatProvider, resolveChatClientConfig } from './config'
 export type { OpenAIChatProvider, ChatApiProvider, ChatClientConfig } from './config'
+export { AnthropicOAuthError } from './claudeOAuth'
 export { EmptyReplyError } from './types'
 export type { ChatRequestBody, ChatProviderContext, ChatProviderResult, ChatThreadRecord } from './types'

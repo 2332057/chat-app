@@ -1,0 +1,120 @@
+export type AnthropicMessage = {
+  role: 'user' | 'assistant' | 'system'
+  content: string | Array<Record<string, unknown>>
+}
+
+export type ToolDefinition = {
+  type: string
+  name: string
+  description: string
+  parameters: Record<string, unknown>
+}
+
+export type ClaudeOAuthTemplate = {
+  headers: Record<string, string>
+  body: Record<string, unknown>
+}
+
+type BodyOptions = {
+  model: string
+  maxTokens: number
+  messages: AnthropicMessage[]
+  allowTools: boolean
+  systemInstructions: string
+  tools: ToolDefinition[]
+}
+
+type CapturedBodyOptions = BodyOptions & {
+  templateBody: Record<string, unknown>
+}
+
+export function buildDefaultOAuthBody({ model, maxTokens, messages, allowTools, systemInstructions, tools }: BodyOptions): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    model,
+    max_tokens: maxTokens,
+    system: [
+      {
+        type: 'text',
+        text: systemInstructions,
+      },
+    ],
+    messages,
+  }
+
+  if (allowTools) {
+    body.tools = toAnthropicTools(tools)
+    body.tool_choice = { type: 'auto' }
+  }
+  return body
+}
+
+export function buildCapturedOAuthBody({
+  templateBody,
+  model,
+  maxTokens,
+  messages,
+  allowTools,
+  systemInstructions,
+  tools,
+}: CapturedBodyOptions): Record<string, unknown> {
+  const body = deepClone(templateBody)
+  body.model = model
+  body.max_tokens = maxTokens
+  body.stream = false
+  delete body.thinking
+  body.messages = [...capturedContextMessages(templateBody), ...messages, appSystemMessage(systemInstructions)]
+  if (allowTools) {
+    body.tools = toAnthropicTools(tools)
+    body.tool_choice = { type: 'auto' }
+  } else {
+    delete body.tools
+    delete body.tool_choice
+  }
+  return body
+}
+
+export function toAnthropicTools(tools: ToolDefinition[]): Array<Record<string, unknown>> {
+  return tools
+    .filter((tool) => tool.type === 'function')
+    .map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      input_schema: {
+        $schema: 'https://json-schema.org/draft/2020-12/schema',
+        ...tool.parameters,
+      },
+    }))
+}
+
+export function capturedContextMessages(body: Record<string, unknown>): AnthropicMessage[] {
+  const messages = Array.isArray(body.messages) ? body.messages : []
+  return messages
+    .filter((message): message is AnthropicMessage => {
+      if (!message || typeof message !== 'object') {
+        return false
+      }
+      const candidate = message as AnthropicMessage
+      return candidate.role === 'user' && JSON.stringify(candidate.content).includes('<system-reminder>')
+    })
+    .slice(0, 1)
+}
+
+export function appSystemMessage(systemInstructions: string): AnthropicMessage {
+  return {
+    role: 'system',
+    content: [
+      {
+        type: 'text',
+        text: systemInstructions,
+        cache_control: {
+          type: 'ephemeral',
+          ttl: '1h',
+        },
+      },
+    ],
+  }
+}
+
+function deepClone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T
+}

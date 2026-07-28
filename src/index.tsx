@@ -4,7 +4,7 @@ import { Hono } from 'hono'
 import { Link, Script, ViteClient } from 'vite-ssr-components/hono'
 import OpenAI from 'openai'
 import type { D1Database } from '@cloudflare/workers-types'
-import { runChat, resolveChatProvider, resolveChatClientConfig, EmptyReplyError } from './server/chat'
+import { runChat, resolveChatProvider, resolveChatClientConfig, EmptyReplyError, AnthropicOAuthError } from './server/chat'
 import type { ChatRequestBody, ChatThreadRecord } from './server/chat'
 
 type Bindings = {
@@ -26,6 +26,7 @@ type Bindings = {
   CLAUDE_CODE_X_APP?: string
   CLAUDE_CODE_VERSION?: string
   CLAUDE_MAX_TURNS?: string
+  CLAUDE_OAUTH_TEMPLATE_SOURCE?: string
   DB: D1Database
 }
 
@@ -162,6 +163,16 @@ app.post('/api/chat', async (c) => {
   } catch (error) {
     if (error instanceof EmptyReplyError) {
       return c.json({ error: 'OpenAI returned an empty reply.' }, 502)
+    }
+    if (error instanceof AnthropicOAuthError) {
+      console.error(error)
+      if (error.type === 'rate_limit_error' || error.status === 429) {
+        return c.json({ error: 'Claude OAuth is currently rate-limited. Please try again later.' }, 429)
+      }
+      if (error.status === 401 || error.status === 403 || error.type === 'authentication_error') {
+        return c.json({ error: 'Claude OAuth authentication failed. Refresh the Worker OAuth token and try again.' }, 502)
+      }
+      return c.json({ error: 'Claude OAuth request failed.' }, 502)
     }
     console.error(error)
     return c.json({ error: 'チャットの生成に失敗しました。' }, 500)

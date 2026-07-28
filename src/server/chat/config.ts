@@ -26,6 +26,7 @@ export type ChatClientConfig = {
     xApp?: string
     claudeCodeVersion?: string
     maxTurns?: number
+    templateSource?: string
   }
 }
 
@@ -47,6 +48,7 @@ export function resolveChatClientConfig(env: {
   CLAUDE_CODE_X_APP?: string
   CLAUDE_CODE_VERSION?: string
   CLAUDE_MAX_TURNS?: string
+  CLAUDE_OAUTH_TEMPLATE_SOURCE?: string
 }): ChatClientConfig {
   return {
     apiKey: env.OPENAI_API_KEY,
@@ -66,6 +68,7 @@ export function resolveChatClientConfig(env: {
       xApp: env.CLAUDE_CODE_X_APP,
       claudeCodeVersion: env.CLAUDE_CODE_VERSION,
       maxTurns: env.CLAUDE_MAX_TURNS ? Number(env.CLAUDE_MAX_TURNS) : undefined,
+      templateSource: env.CLAUDE_OAUTH_TEMPLATE_SOURCE,
     },
   }
 }
