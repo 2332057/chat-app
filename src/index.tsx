@@ -8,12 +8,24 @@ import { runChat, resolveChatProvider, resolveChatClientConfig, EmptyReplyError 
 import type { ChatRequestBody, ChatThreadRecord } from './server/chat'
 
 type Bindings = {
-  OPENAI_API_KEY: string
+  OPENAI_API_KEY?: string
   OPENAI_BASE_URL?: string
   OPENAI_MODEL?: string
   OPENAI_MAX_TOKENS?: string
   OPENAI_REASONING_EFFORT?: string
   CHAT_API_PROVIDER?: string
+  ANTHROPIC_OAUTH_TOKEN?: string
+  CLAUDE_CODE_OAUTH_TOKEN?: string
+  ANTHROPIC_BASE_URL?: string
+  ANTHROPIC_MODEL?: string
+  ANTHROPIC_MAX_TOKENS?: string
+  ANTHROPIC_VERSION?: string
+  ANTHROPIC_BETA?: string
+  CLAUDE_CODE_USER_AGENT?: string
+  ANTHROPIC_DANGEROUS_DIRECT_BROWSER_ACCESS?: string
+  CLAUDE_CODE_X_APP?: string
+  CLAUDE_CODE_VERSION?: string
+  CLAUDE_MAX_TURNS?: string
   DB: D1Database
 }
 
@@ -102,7 +114,7 @@ app.post('/api/chat', async (c) => {
   const provider = resolveChatProvider(c.env.CHAT_API_PROVIDER)
   const clientConfig = resolveChatClientConfig(c.env)
 
-  if (!clientConfig.apiKey) {
+  if (provider !== 'claude-oauth' && !clientConfig.apiKey) {
     return c.json({ error: 'OPENAI_API_KEY is not set.' }, 500)
   }
 
@@ -119,11 +131,15 @@ app.post('/api/chat', async (c) => {
   }
 
   await c.env.DB.prepare('INSERT INTO messages (thread_id, role, content) VALUES (?, ?, ?)').bind(threadId, 'user', content).run()
+  const previousResponseId = provider === 'responses' && !thread.last_response_id?.includes(':') ? (thread.last_response_id ?? undefined) : undefined
 
-  const client = new OpenAI({
-    apiKey: clientConfig.apiKey,
-    baseURL: clientConfig.baseURL,
-  })
+  const client =
+    provider === 'claude-oauth'
+      ? undefined
+      : new OpenAI({
+          apiKey: clientConfig.apiKey,
+          baseURL: clientConfig.baseURL,
+        })
 
   try {
     const { lastResponseId, ...responses } = await runChat(provider, {
@@ -131,10 +147,11 @@ app.post('/api/chat', async (c) => {
       db: c.env.DB,
       threadId,
       content,
-      model: clientConfig.model,
-      maxTokens: clientConfig.maxTokens,
+      model: provider === 'claude-oauth' ? (clientConfig.anthropic.model ?? clientConfig.model) : clientConfig.model,
+      maxTokens: provider === 'claude-oauth' ? (clientConfig.anthropic.maxTokens ?? clientConfig.maxTokens) : clientConfig.maxTokens,
       reasoningEffort: clientConfig.reasoningEffort,
-      previousResponseId: thread.last_response_id ?? undefined,
+      previousResponseId,
+      anthropic: clientConfig.anthropic,
     })
 
     if (lastResponseId) {

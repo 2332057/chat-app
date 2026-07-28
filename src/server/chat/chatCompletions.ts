@@ -9,6 +9,9 @@ const MAX_TOOL_ROUNDS = 3
 
 export async function runChatCompletionsChat(ctx: ChatProviderContext): Promise<ChatProviderResult> {
   const { client, db, threadId, model, maxTokens, reasoningEffort } = ctx
+  if (!client) {
+    throw new Error('OpenAI client is required for chat-completions provider.')
+  }
 
   const extraParams: Record<string, unknown> = {}
   if (maxTokens !== undefined) extraParams.max_tokens = maxTokens

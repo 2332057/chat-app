@@ -23,6 +23,33 @@ OPENAI_MAX_TOKENS=30000
 OPENAI_REASONING_EFFORT=high
 ```
 
+### Claude OAuth provider
+
+For a seat-based PoC with Claude subscription auth and no Anthropic API key,
+use the experimental Claude OAuth provider. It runs entirely inside the
+Cloudflare Worker, keeps the same UI, D1 note storage, note versioning, and
+tool-call audit payloads.
+
+Run the setup helper on a machine where Claude Code and Wrangler are installed
+and Claude Code is logged in:
+
+```sh
+node scripts/claude-oauth-cloudflare.mjs --apply --worker-url https://your-worker.example
+```
+
+The helper is the authoritative setup path. It captures the local `claude -p`
+OAuth request headers, verifies that the captured header shape works against the
+Messages API, uploads `ANTHROPIC_OAUTH_TOKEN` as a Worker secret, deploys the
+Worker with the captured Claude Code identity settings, applies remote D1
+migrations, seeds user `1`, and verifies a real note tool call through
+`/api/chat`.
+
+To validate auth and header capture without changing Cloudflare:
+
+```sh
+node scripts/claude-oauth-cloudflare.mjs
+```
+
 Create db:
 
 ```sh

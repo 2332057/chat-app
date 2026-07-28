@@ -1,13 +1,13 @@
 import type OpenAI from 'openai'
 import type { D1Database } from '@cloudflare/workers-types'
 import type { ChatReturnType } from '../../types/chat'
-import type { OpenAIChatProvider } from './config'
+import type { ChatApiProvider } from './config'
 
 export type ChatRequestBody = {
   threadId?: string | number
   content?: string
-  provider?: OpenAIChatProvider
-  apiProvider?: OpenAIChatProvider
+  provider?: ChatApiProvider
+  apiProvider?: ChatApiProvider
 }
 
 export type ChatThreadRecord = {
@@ -16,7 +16,7 @@ export type ChatThreadRecord = {
 }
 
 export type ChatProviderContext = {
-  client: OpenAI
+  client?: OpenAI
   db: D1Database
   threadId: string | number
   content: string
@@ -24,6 +24,17 @@ export type ChatProviderContext = {
   maxTokens?: number
   reasoningEffort?: string
   previousResponseId?: string
+  anthropic?: {
+    oauthToken?: string
+    baseURL?: string
+    version?: string
+    beta?: string
+    userAgent?: string
+    dangerousDirectBrowserAccess?: string
+    xApp?: string
+    claudeCodeVersion?: string
+    maxTurns?: number
+  }
 }
 
 export type ChatProviderResult = ChatReturnType & {

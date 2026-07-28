@@ -37,6 +37,9 @@ async function buildResponsesInputHistory(
 
 export async function runResponsesChat(ctx: ChatProviderContext): Promise<ChatProviderResult> {
   const { client, db, threadId, content, model, previousResponseId, reasoningEffort } = ctx
+  if (!client) {
+    throw new Error('OpenAI client is required for responses provider.')
+  }
 
   const reasoningParam = reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}
 

@@ -105,6 +105,17 @@ function parseToolPayload(raw: string | null | undefined): ToolPayload | null {
   return null
 }
 
+function parseToolInput(args: unknown): unknown {
+  if (typeof args === 'string') {
+    try {
+      return args ? JSON.parse(args) : {}
+    } catch {
+      return {}
+    }
+  }
+  return args ?? {}
+}
+
 // Chat Completions 形式へ復元: assistant(tool_calls) の後に tool(output) を並べる
 export function toChatCompletionMessages(raw: string | null | undefined, assistantContent = ''): any[] | null {
   const payload = parseToolPayload(raw)
@@ -155,6 +166,33 @@ export function toResponsesInputItems(raw: string | null | undefined): any[] | n
     })
   }
   return items
+}
+
+// Anthropic Messages 形式へ復元: assistant(tool_use) の後に user(tool_result) を並べる
+export function toAnthropicMessages(raw: string | null | undefined): any[] | null {
+  const payload = parseToolPayload(raw)
+  if (!payload) {
+    return null
+  }
+  return [
+    {
+      role: 'assistant',
+      content: payload.calls.map((call) => ({
+        type: 'tool_use',
+        id: call.id,
+        name: call.name,
+        input: parseToolInput(call.arguments),
+      })),
+    },
+    {
+      role: 'user',
+      content: payload.outputs.map((output) => ({
+        type: 'tool_result',
+        tool_use_id: output.callId,
+        content: output.output,
+      })),
+    },
+  ]
 }
 
 export const responseTools = tools
