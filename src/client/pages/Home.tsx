@@ -23,6 +23,8 @@ const parseSqliteUtc = (raw?: string): number => {
   return Number.isNaN(t) ? Date.now() : t
 }
 
+const ACTIVE_THREAD_STORAGE_KEY = 'chat.activeThreadId'
+
 export default function Home() {
   const [threadList, setThreadList] = useState<{ id: string | number; title: string }[]>([])
   const [activeThreadId, setActiveThreadId] = useState<string | number | null>(null)
@@ -33,6 +35,11 @@ export default function Home() {
 
   const messagesRef = useRef<HTMLDivElement | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+
+  const selectThread = (threadId: string | number) => {
+    sessionStorage.setItem(ACTIVE_THREAD_STORAGE_KEY, String(threadId))
+    setActiveThreadId(threadId)
+  }
 
   useEffect(() => {
     document.title = 'チャット | 学習支援システム'
@@ -47,12 +54,17 @@ export default function Home() {
         const data = await res.json()
         if (ignore) return
 
-        if (data.threads && data.threads.length > 0) {
-          setThreadList(data.threads)
-          setActiveThreadId(data.threads[0].id)
-        } else {
-          createThread()
+        const existingThreads: { id: string | number; title: string }[] = Array.isArray(data.threads) ? data.threads : []
+        setThreadList(existingThreads)
+
+        const storedThreadId = sessionStorage.getItem(ACTIVE_THREAD_STORAGE_KEY)
+        const storedThread = existingThreads.find((thread) => String(thread.id) === storedThreadId)
+        if (storedThread) {
+          selectThread(storedThread.id)
+          return
         }
+
+        await createThread(existingThreads)
       } catch (e) {
         console.error('Failed to fetch threads', e)
       }
@@ -109,7 +121,7 @@ export default function Home() {
     textareaRef.current?.focus()
   }, [])
 
-  const createThread = async () => {
+  const createThread = async (existingThreads?: { id: string | number; title: string }[]) => {
     setBusy(true)
     try {
       const res = await fetch('/api/threads', {
@@ -120,8 +132,8 @@ export default function Home() {
       if (!res.ok) return
       const data = await res.json()
       if (data.thread) {
-        setThreadList((prev) => [data.thread, ...prev])
-        setActiveThreadId(data.thread.id)
+        setThreadList((prev) => [data.thread, ...(existingThreads ?? prev)])
+        selectThread(data.thread.id)
       }
     } catch (e) {
       console.error(e)
@@ -236,14 +248,14 @@ export default function Home() {
         <h1>学習支援システム</h1>
         <div className={styles.chat_selector}>
           <label htmlFor="thread">チャット</label>
-          <select id="thread" value={String(activeThreadId || '')} onChange={(e) => setActiveThreadId(e.target.value)} disabled={busy}>
+          <select id="thread" value={String(activeThreadId || '')} onChange={(e) => selectThread(e.target.value)} disabled={busy}>
             {threadList.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.title}
               </option>
             ))}
           </select>
-          <button type="button" onClick={createThread} disabled={busy}>
+          <button type="button" onClick={() => void createThread()} disabled={busy}>
             新規
           </button>
           <button type="button" onClick={editThreadTitle} disabled={busy || !activeThreadId}>

@@ -1,0 +1,6 @@
+CREATE TABLE IF NOT EXISTS claude_oauth_template (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  headers TEXT NOT NULL,
+  body TEXT NOT NULL,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);

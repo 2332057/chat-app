@@ -1,5 +1,6 @@
 import type { D1Database } from '@cloudflare/workers-types'
 import type { NoteType } from './types/chat'
+import toolDefinitions from './tools.json'
 
 type ToolError = { error: string }
 
@@ -52,59 +53,4 @@ export async function editNote(db: D1Database, threadId: string | number, edits:
 
 // 教え子はノートに書かれたことしか知らない、というペルソナの前提を壊すため、
 // web_search などノート外の知識を取り込むツールは持たせない。
-export const tools = [
-  {
-    type: 'function' as const,
-    name: 'read_note',
-    description: '現在のスレッドに保存されているノート（LLMが学んだ内容の記録）を読み取ります。ユーザーが以前の学習内容やノートについて言及した際に使用してください。',
-    parameters: {
-      type: 'object',
-      properties: {},
-      required: [],
-      additionalProperties: false,
-    },
-    strict: true,
-  },
-  {
-    type: 'function' as const,
-    name: 'create_note',
-    description: '新しいノートを作成して、ユーザーの学習内容や重要な情報を記録します。',
-    parameters: {
-      type: 'object',
-      properties: {
-        title: { type: 'string', description: 'ノートのタイトル' },
-        content: { type: 'string', description: 'ノートに保存する内容（マークダウン形式）' },
-      },
-      required: ['title', 'content'],
-      additionalProperties: false,
-    },
-    strict: true,
-  },
-  {
-    type: 'function' as const,
-    name: 'edit_note',
-    description:
-      '最新のノートを文字列置換で部分的に修正します。誤りの修正や重複の統合に使用してください。複数箇所を直す場合は edits に複数指定します（先頭から順に適用され、すべて成功したときだけ1つの新バージョンとして保存されます）。old_str はノート内で一意に特定できる文字列を指定してください（0件または複数件マッチするとエラーになります）。削除は new_str に空文字を指定します。全面的な書き直しには create_note を使ってください。',
-    parameters: {
-      type: 'object',
-      properties: {
-        edits: {
-          type: 'array',
-          description: '適用する置換のリスト（順に適用）',
-          items: {
-            type: 'object',
-            properties: {
-              old_str: { type: 'string', description: '置き換えたい既存テキスト（ノート内で一意に特定できるもの）' },
-              new_str: { type: 'string', description: '置き換え後のテキスト（削除する場合は空文字）' },
-            },
-            required: ['old_str', 'new_str'],
-            additionalProperties: false,
-          },
-        },
-      },
-      required: ['edits'],
-      additionalProperties: false,
-    },
-    strict: true,
-  },
-]
+export const tools = toolDefinitions
