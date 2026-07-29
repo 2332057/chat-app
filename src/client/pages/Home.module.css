@@ -1,20 +1,18 @@
-.header {
-  height: 2rem;
-  padding: 0 1rem;
-  overflow: hidden;
-}
-.header h1 {
-  font-size: 1rem;
-  line-height: 2rem;
-  margin: 0;
-  display: inline-block;
-}
 .chat_selector {
-  margin: 0 0 0 1rem;
-  display: inline-block;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
 }
+.chat_selector select {
+  min-width: 0;
+  max-width: 20rem;
+}
+/* Layout の .shell(flex column)の残り高さを埋める。
+   min-height: 0 がないと中身の分だけ伸びてスクロールが効かなくなる。 */
 .main {
-  height: calc(100svh - 2rem);
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .split {
   display: flex;

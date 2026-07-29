@@ -1,0 +1,89 @@
+.shell {
+  display: flex;
+  flex-direction: column;
+  height: 100svh;
+}
+
+.header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0 1rem;
+  min-height: 2rem;
+  font-family: system-ui, sans-serif;
+}
+
+.heading {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 2rem;
+  white-space: nowrap;
+}
+
+/* ページ固有のコントロールの差し込み口。空のときは余白として働き、
+   右側のユーザー情報を端に寄せる。 */
+.slot {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.email {
+  font-size: 12px;
+  color: #666;
+  white-space: nowrap;
+}
+
+.logoutButton {
+  padding: 2px 10px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: #fff;
+  color: #444;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.logoutButton:hover {
+  background: #f5f5f5;
+}
+
+.gate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  min-height: 100svh;
+  padding: 24px;
+  font-family: system-ui, sans-serif;
+  text-align: center;
+}
+
+.title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.note {
+  margin: 0;
+  max-width: 420px;
+  color: #666;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.loginButton {
+  padding: 10px 24px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: #fff;
+  color: #222;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.loginButton:hover {
+  background: #f5f5f5;
+}

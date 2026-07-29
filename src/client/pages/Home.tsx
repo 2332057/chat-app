@@ -1,10 +1,12 @@
 /** @jsxImportSource react */
 
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { ChatMessageType, ChatReturnType, ChatThreadType, NoteType } from '../../types/chat'
 import ChatThread from '../components/ChatThread'
 import ChatForm from '../components/ChatForm'
 import Note from '../components/Note'
+import { useHeaderSlot } from '../Layout'
 import styles from './Home.module.css'
 
 const createId = () => {
@@ -33,6 +35,7 @@ export default function Home() {
 
   const messagesRef = useRef<HTMLDivElement | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const headerSlot = useHeaderSlot()
 
   useEffect(() => {
     document.title = 'チャット | 学習支援システム'
@@ -230,27 +233,30 @@ export default function Home() {
     messages,
   }
 
+  // スレッド選択は Layout のヘッダーへ差し込む。state は Home に置いたまま、
+  // DOM 上の位置だけヘッダー内に移す。
+  const threadSelector = (
+    <div className={styles.chat_selector}>
+      <label htmlFor="thread">チャット</label>
+      <select id="thread" value={String(activeThreadId || '')} onChange={(e) => setActiveThreadId(e.target.value)} disabled={busy}>
+        {threadList.map((t) => (
+          <option key={t.id} value={t.id}>
+            {t.title}
+          </option>
+        ))}
+      </select>
+      <button type="button" onClick={createThread} disabled={busy}>
+        新規
+      </button>
+      <button type="button" onClick={editThreadTitle} disabled={busy || !activeThreadId}>
+        編集
+      </button>
+    </div>
+  )
+
   return (
     <>
-      <header className={styles.header}>
-        <h1>学習支援システム</h1>
-        <div className={styles.chat_selector}>
-          <label htmlFor="thread">チャット</label>
-          <select id="thread" value={String(activeThreadId || '')} onChange={(e) => setActiveThreadId(e.target.value)} disabled={busy}>
-            {threadList.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.title}
-              </option>
-            ))}
-          </select>
-          <button type="button" onClick={createThread} disabled={busy}>
-            新規
-          </button>
-          <button type="button" onClick={editThreadTitle} disabled={busy || !activeThreadId}>
-            編集
-          </button>
-        </div>
-      </header>
+      {headerSlot && createPortal(threadSelector, headerSlot)}
       <main className={styles.main}>
         <div className={styles.split}>
           <div className={styles.note}>{notes.length > 0 && <Note versions={notes} />}</div>
