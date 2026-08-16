@@ -6,6 +6,9 @@ import OpenAI from 'openai'
 import type { D1Database } from '@cloudflare/workers-types'
 import { runChat, resolveChatProvider, resolveChatClientConfig, EmptyReplyError, AnthropicOAuthError } from './server/chat'
 import type { ChatRequestBody, ChatThreadRecord } from './server/chat'
+import authRoutes from './server/authRoutes'
+import { requireAuth, requireSameOrigin } from './server/middleware'
+import type { AuthUser } from './server/auth'
 
 type Bindings = {
   OPENAI_API_KEY?: string
@@ -27,14 +30,32 @@ type Bindings = {
   CLAUDE_CODE_VERSION?: string
   CLAUDE_MAX_TURNS?: string
   CLAUDE_OAUTH_TEMPLATE_SOURCE?: string
+  GOOGLE_CLIENT_ID: string
+  GOOGLE_CLIENT_SECRET: string
+  ALLOWED_GOOGLE_DOMAIN: string
   DB: D1Database
 }
 
-const app = new Hono<{ Bindings: Bindings }>()
+type Variables = {
+  user: AuthUser
+}
+
+const app = new Hono<{ Bindings: Bindings; Variables: Variables }>()
+
+app.route('/auth', authRoutes)
+
+// /api/* は全て認証必須。ミドルウェアの順序が認可の要なので、
+// 個別ルートより先に登録すること。
+app.use('/api/*', requireSameOrigin)
+app.use('/api/*', requireAuth)
+
+app.get('/api/me', (c) => c.json({ user: c.get('user') }))
 
 app.get('/api/threads', async (c) => {
   try {
-    const { results } = await c.env.DB.prepare('SELECT id, title FROM threads ORDER BY updated_at DESC').all()
+    const { results } = await c.env.DB.prepare('SELECT id, title FROM threads WHERE user_id = ? ORDER BY updated_at DESC')
+      .bind(c.get('user').id)
+      .all()
     return c.json({ threads: results })
   } catch (error) {
     console.error(error)
@@ -47,8 +68,7 @@ app.post('/api/threads', async (c) => {
     const body = await c.req.json<{ title?: string }>().catch(() => null)
     const title = body?.title?.trim() || '新規チャット'
 
-    // FIXME: use user_id(1), later implement authentication and get user_id from auth context
-    const userId = 1
+    const userId = c.get('user').id
 
     const { results } = await c.env.DB.prepare('INSERT INTO threads (user_id, title) VALUES (?, ?) RETURNING *').bind(userId, title).all()
 
@@ -64,7 +84,8 @@ app.get('/api/threads/:id', async (c) => {
     const threadId = c.req.param('id')
 
     const [threadResult, messagesResult, notesResult] = await c.env.DB.batch([
-      c.env.DB.prepare('SELECT * FROM threads WHERE id = ?').bind(threadId),
+      // user_id で必ず絞る。ここを thread_id だけにすると他人のスレッドを ID 推測で読める。
+      c.env.DB.prepare('SELECT * FROM threads WHERE id = ? AND user_id = ?').bind(threadId, c.get('user').id),
       c.env.DB.prepare('SELECT * FROM messages WHERE thread_id = ? ORDER BY created_at ASC, id ASC').bind(threadId),
       c.env.DB.prepare('SELECT * FROM notes WHERE thread_id = ? ORDER BY created_at ASC, id ASC').bind(threadId),
     ])
@@ -95,7 +116,9 @@ app.patch('/api/threads/:id', async (c) => {
       return c.json({ error: 'title is required.' }, 400)
     }
 
-    const { results } = await c.env.DB.prepare('UPDATE threads SET title = ? WHERE id = ? RETURNING *').bind(title, threadId).all()
+    const { results } = await c.env.DB.prepare('UPDATE threads SET title = ? WHERE id = ? AND user_id = ? RETURNING *')
+      .bind(title, threadId, c.get('user').id)
+      .all()
 
     if (results.length === 0) {
       return c.json({ error: 'スレッドが見つかりません。' }, 404)
@@ -126,7 +149,9 @@ app.post('/api/chat', async (c) => {
     return c.json({ error: 'content is required.' }, 400)
   }
 
-  const thread = await c.env.DB.prepare('SELECT id, last_response_id FROM threads WHERE id = ?').bind(threadId).first<ChatThreadRecord>()
+  const thread = await c.env.DB.prepare('SELECT id, last_response_id FROM threads WHERE id = ? AND user_id = ?')
+    .bind(threadId, c.get('user').id)
+    .first<ChatThreadRecord>()
   if (!thread) {
     return c.json({ error: 'thread not found' }, 404)
   }
