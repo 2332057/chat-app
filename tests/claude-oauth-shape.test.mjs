@@ -12,6 +12,7 @@ import {
   capturedRequestHeaders,
   exactReplayHeaders,
   toSpawnable,
+  trimCapturedTemplateBody,
   which,
   writeDevVars,
   writeDevVarsToken,
@@ -108,6 +109,17 @@ test('app shape uses top-level app system instead of message-level system', asyn
   assert.equal(body.system.at(-1).text, 'app instructions')
   assert.equal(body.system.at(-1).cache_control.type, 'ephemeral')
   assert.equal(body.messages.some((message) => message.role === 'system'), false)
+})
+
+test('trimming the stored template does not change the request the app builds', async () => {
+  const captured = capturedBodyFixture()
+  const capturedText = JSON.stringify(captured)
+  const trimmedText = trimCapturedTemplateBody(capturedText)
+  const build = (text) => buildAppBodyFromCapturedEnvelope(text, 'claude-opus-5', 4096, 'prompt')
+
+  assert.deepEqual(build(trimmedText), build(capturedText))
+  assert.ok(Buffer.byteLength(trimmedText) < Buffer.byteLength(capturedText))
+  assert.equal(JSON.parse(trimmedText).tools, undefined)
 })
 
 test('--write-dev-vars replaces only the token line and keeps the rest of the file', async () => {

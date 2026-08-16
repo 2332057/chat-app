@@ -969,11 +969,28 @@ function parseJson(text) {
   }
 }
 
+// The app builder overwrites tools and messages on every request, so storing Claude
+// Code's own copies wastes tens of kilobytes. Dropping them also keeps the SQL small
+// enough for wrangler's query API - past a size threshold it switches to the D1 import
+// API, which an OAuth login cannot authenticate against.
+function trimCapturedTemplateBody(bodyText) {
+  const body = parseJson(bodyText)
+  if (!body) {
+    return bodyText
+  }
+  delete body.tools
+  delete body.tool_choice
+  body.messages = capturedContextMessages(body)
+  return JSON.stringify(body)
+}
+
 async function uploadCapturedTemplate(headers, bodyText, target = '--remote') {
   const sqlPath = path.join(os.tmpdir(), `chat-claude-oauth-template-${process.pid}.sql`)
+  const trimmedBody = trimCapturedTemplateBody(bodyText)
+  log(`Captured template body: ${Buffer.byteLength(bodyText)} bytes, trimmed to ${Buffer.byteLength(trimmedBody)} bytes.`)
   const statements = [
     'CREATE TABLE IF NOT EXISTS claude_oauth_template (id INTEGER PRIMARY KEY CHECK (id = 1), headers TEXT NOT NULL, body TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);',
-    `INSERT INTO claude_oauth_template (id, headers, body, updated_at) VALUES (1, ${sqlString(JSON.stringify(headers))}, ${sqlString(bodyText)}, CURRENT_TIMESTAMP) ON CONFLICT(id) DO UPDATE SET headers = excluded.headers, body = excluded.body, updated_at = CURRENT_TIMESTAMP;`,
+    `INSERT INTO claude_oauth_template (id, headers, body, updated_at) VALUES (1, ${sqlString(JSON.stringify(headers))}, ${sqlString(trimmedBody)}, CURRENT_TIMESTAMP) ON CONFLICT(id) DO UPDATE SET headers = excluded.headers, body = excluded.body, updated_at = CURRENT_TIMESTAMP;`,
   ]
   fs.writeFileSync(sqlPath, `${statements.join('\n')}\n`)
   try {
@@ -1118,6 +1135,7 @@ export {
   exactReplayHeaders,
   shouldForwardCapturedHeader,
   toSpawnable,
+  trimCapturedTemplateBody,
   which,
   writeDevVars,
   writeDevVarsToken,
