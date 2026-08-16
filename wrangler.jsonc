@@ -19,5 +19,65 @@
     "traces": {
       "enabled": true
     }
+  },
+  // chat-app-a は Claude、chat-app-b は GPT。D1 は同じデータベースを共有する。
+  // 環境はトップレベルの vars を継承しないので、各環境に必要な変数を全て書くこと。
+  // シークレット（OPENAI_API_KEY / ANTHROPIC_OAUTH_TOKEN）は
+  // `wrangler secret put <名前> --env <a|b>` で環境ごとに登録する。
+  "env": {
+    "a": {
+      "name": "chat-app-a",
+      "vars": {
+        "CHAT_API_PROVIDER": "claude-oauth",
+        "ANTHROPIC_MODEL": "claude-opus-5",
+        "ANTHROPIC_MAX_TOKENS": "4096",
+        "CLAUDE_MAX_TURNS": "3",
+        "CLAUDE_OAUTH_TEMPLATE_SOURCE": "d1"
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "chat-app",
+          "database_id": "1edd441f-71a2-410f-90f2-4947478e03e8",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "observability": {
+        "logs": {
+          "enabled": true,
+          "invocation_logs": true
+        },
+        "traces": {
+          "enabled": true
+        }
+      }
+    },
+    "b": {
+      "name": "chat-app-b",
+      "vars": {
+        "CHAT_API_PROVIDER": "responses",
+        "OPENAI_BASE_URL": "https://gateway.ai.cloudflare.com/v1/72660021a0c12e4a2650f04da672b9a1/chat/openai",
+        "OPENAI_MODEL": "gpt-5.6",
+        "OPENAI_MAX_TOKENS": "30000",
+        "OPENAI_REASONING_EFFORT": "high"
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "chat-app",
+          "database_id": "1edd441f-71a2-410f-90f2-4947478e03e8",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "observability": {
+        "logs": {
+          "enabled": true,
+          "invocation_logs": true
+        },
+        "traces": {
+          "enabled": true
+        }
+      }
+    }
   }
 }
