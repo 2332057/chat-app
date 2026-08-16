@@ -11,7 +11,6 @@ import { pathToFileURL } from 'node:url'
 const DEFAULT_MAX_TOKENS = '4096'
 const DEFAULT_MAX_TURNS = '3'
 const DEFAULT_MODEL = 'claude-haiku-4-5'
-const WORKER_SMOKE_THREAD_PREFIX = '__claude_oauth_smoke__'
 const DEV_VARS_TOKEN_KEY = 'ANTHROPIC_OAUTH_TOKEN'
 const APP_PROBE_PROMPT =
   'これはClaude OAuth接続確認です。学習内容ではありません。短く接続確認だけ返してください。'
@@ -67,16 +66,8 @@ async function main() {
 
   if (args['local-setup']) {
     requireWrangler()
-    await runWrangler(['d1', 'migrations', 'apply', 'chat-app', '--local'])
-    await runWrangler([
-      'd1',
-      'execute',
-      'chat-app',
-      '--local',
-      '--command',
-      "INSERT OR IGNORE INTO users (id, name) VALUES (1, 'Test User');",
-    ])
-    log('Local D1 migrations/user seed checked.')
+    await runWrangler(withWorkerEnv(['d1', 'migrations', 'apply', 'chat-app', '--local']))
+    log('Local D1 migrations checked.')
     await uploadCapturedTemplate(captured.headers, captured.bodyText, '--local')
     log('Seeded the captured request template into local D1.')
     const devVarsPath = writeLocalSetupDevVars({
@@ -94,7 +85,7 @@ async function main() {
   }
 
   if (!args.apply) {
-    log('Dry run complete. Re-run with --apply to upload the D1 template, deploy, upload the secret, and test the Worker.')
+    log('Dry run complete. Re-run with --apply to upload the D1 template, deploy, and upload the secret.')
     return
   }
 
@@ -115,43 +106,21 @@ async function main() {
         capturedHeaders: captured.headers,
       })
 
-  await runWrangler(['secret', 'put', 'ANTHROPIC_OAUTH_TOKEN'], {
+  await runWrangler(withWorkerEnv(['secret', 'put', 'ANTHROPIC_OAUTH_TOKEN']), {
     input: `${token}\n`,
     redact: [token],
   })
   log('Uploaded ANTHROPIC_OAUTH_TOKEN secret.')
 
   if (!args['skip-db']) {
-    await runWrangler(['d1', 'migrations', 'apply', 'chat-app', '--remote'])
-    await runWrangler([
-      'd1',
-      'execute',
-      'chat-app',
-      '--remote',
-      '--command',
-      "INSERT OR IGNORE INTO users (id, name) VALUES (1, 'Test User');",
-    ])
-    log('Remote D1 migrations/user seed checked.')
+    await runWrangler(withWorkerEnv(['d1', 'migrations', 'apply', 'chat-app', '--remote']))
+    log('Remote D1 migrations checked.')
   }
 
-  const workerUrl = normalizeWorkerUrl(getArg('worker-url') || findWorkerUrl(deployOutput))
-  if (!workerUrl) {
-    fail('Worker URL was not found. Pass --worker-url https://your-worker.example to run the final test.')
-  }
-
-  if (args['skip-worker-test']) {
-    log(`Skipping Worker smoke test: ${workerUrl}`)
-    return
-  }
-
-  if (!args['keep-worker-test-thread']) {
-    await cleanupStaleWorkerProbeThreads()
-    log('Removed stale Worker smoke test threads.')
-  }
-  await finalWorkerProbe(workerUrl, {
-    cleanup: !args['keep-worker-test-thread'],
-  })
-  log(`Worker OAuth chat test passed: ${workerUrl}`)
+  // /api/chat sits behind Google sign-in, so the deployment cannot be smoke tested
+  // without a browser session. Verify by hand.
+  const workerUrl = findWorkerUrl(deployOutput)
+  log(workerUrl ? `Deployed. Sign in and send a message to verify: ${workerUrl}` : 'Deployed. Sign in and send a message to verify.')
 }
 
 function parseArgs(argv) {
@@ -1008,7 +977,7 @@ async function uploadCapturedTemplate(headers, bodyText, target = '--remote') {
   ]
   fs.writeFileSync(sqlPath, `${statements.join('\n')}\n`)
   try {
-    await runWrangler(['d1', 'execute', 'chat-app', target, '--file', sqlPath])
+    await runWrangler(withWorkerEnv(['d1', 'execute', 'chat-app', target, '--file', sqlPath]))
   } finally {
     await fsp.rm(sqlPath, { force: true })
   }
@@ -1033,6 +1002,17 @@ function requireWrangler() {
   }
 }
 
+// Every wrangler call has to name the environment, or it targets the top-level Worker
+// instead of the one this helper is configuring.
+function workerEnv() {
+  return getArg('env', '')
+}
+
+function withWorkerEnv(argv) {
+  const env = workerEnv()
+  return env ? [...argv, '--env', env] : argv
+}
+
 async function runWrangler(argv, options = {}) {
   const command = which('wrangler') || localWranglerPath() || 'npx'
   const fullArgv = command === 'npx' ? ['wrangler', ...argv] : argv
@@ -1046,7 +1026,7 @@ function runProcess(command, argv, options = {}) {
     const child = spawn(spawnable.command, spawnable.argv, {
       ...spawnable.options,
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: process.env,
+      env: { ...process.env, ...options.env },
     })
     let stdout = ''
     let stderr = ''
@@ -1089,7 +1069,9 @@ function redact(text, values = []) {
 }
 
 async function deployWorker({ model, maxTokens, maxTurns, claudeVersion, capturedHeaders }) {
-  await runProcess('npm', ['run', 'build'])
+  // The Vite plugin flattens wrangler.jsonc to one environment at build time, so the
+  // environment has to be picked here rather than with --env on the deploy alone.
+  await runProcess('npm', ['run', 'build'], { env: workerEnv() ? { CLOUDFLARE_ENV: workerEnv() } : {} })
   const argv = [
     'deploy',
     '--var',
@@ -1116,7 +1098,7 @@ async function deployWorker({ model, maxTokens, maxTurns, claudeVersion, capture
   if (capturedHeaders['x-app']) {
     argv.push('--var', `CLAUDE_CODE_X_APP:${capturedHeaders['x-app']}`)
   }
-  const output = await runWrangler(argv)
+  const output = await runWrangler(withWorkerEnv(argv))
   log('Worker deployed with Claude OAuth vars.')
   return output
 }
@@ -1124,74 +1106,6 @@ async function deployWorker({ model, maxTokens, maxTurns, claudeVersion, capture
 function findWorkerUrl(output) {
   const urls = output.match(/https:\/\/[^\s]+/g) || []
   return urls.find((url) => url.includes('workers.dev')) || urls[0] || ''
-}
-
-function normalizeWorkerUrl(url) {
-  return url ? url.replace(/\/+$/, '') : ''
-}
-
-async function finalWorkerProbe(workerUrl, { cleanup }) {
-  const title = `${WORKER_SMOKE_THREAD_PREFIX}:${Date.now()}`
-  const threadResponse = await fetch(`${workerUrl}/api/threads`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title }),
-  })
-  const threadPayload = await threadResponse.json().catch(() => ({}))
-  if (!threadResponse.ok || !threadPayload?.thread?.id) {
-    fail(`Worker thread creation failed: HTTP ${threadResponse.status}: ${JSON.stringify(threadPayload)}`)
-  }
-
-  try {
-    const chatResponse = await fetch(`${workerUrl}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        threadId: threadPayload.thread.id,
-        content: APP_PROBE_PROMPT,
-      }),
-    })
-    const chatPayload = await chatResponse.json().catch(() => ({}))
-    if (!chatResponse.ok || chatPayload.error) {
-      throw new Error(`Worker chat failed: HTTP ${chatResponse.status}: ${JSON.stringify(chatPayload)}`)
-    }
-    const message = (chatPayload.messages || []).find((candidate) => candidate.role === 'assistant' && typeof candidate.content === 'string' && candidate.content.trim())
-    if (!message) {
-      throw new Error(`Worker chat did not produce an assistant message: ${JSON.stringify(chatPayload)}`)
-    }
-  } finally {
-    if (cleanup) {
-      await cleanupWorkerProbeThread(threadPayload.thread.id, title)
-      log('Cleaned up Worker smoke test thread.')
-    }
-  }
-}
-
-async function cleanupStaleWorkerProbeThreads() {
-  const prefix = sqlString(`${WORKER_SMOKE_THREAD_PREFIX}:%`)
-  await runWrangler([
-    'd1',
-    'execute',
-    'chat-app',
-    '--remote',
-    '--command',
-    `DELETE FROM messages WHERE thread_id IN (SELECT id FROM threads WHERE title LIKE ${prefix}); DELETE FROM notes WHERE thread_id IN (SELECT id FROM threads WHERE title LIKE ${prefix}); DELETE FROM threads WHERE title LIKE ${prefix};`,
-  ])
-}
-
-async function cleanupWorkerProbeThread(threadId, title) {
-  const id = Number(threadId)
-  if (!Number.isSafeInteger(id) || id <= 0) {
-    fail(`Worker smoke test returned an unsafe thread id: ${threadId}`)
-  }
-  await runWrangler([
-    'd1',
-    'execute',
-    'chat-app',
-    '--remote',
-    '--command',
-    `DELETE FROM messages WHERE thread_id = ${id}; DELETE FROM notes WHERE thread_id = ${id}; DELETE FROM threads WHERE id = ${id} AND title = ${sqlString(title)};`,
-  ])
 }
 
 function sleep(ms) {
