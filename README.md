@@ -23,74 +23,106 @@ OPENAI_MAX_TOKENS=30000
 OPENAI_REASONING_EFFORT=high
 ```
 
-### Claude OAuth provider
+### Claude OAuth プロバイダ
 
-For a seat-based PoC with Claude subscription auth and no Anthropic API key,
-use the experimental Claude OAuth provider. It runs entirely inside the
-Cloudflare Worker, keeps the same UI, D1 note storage, note versioning, and
-tool-call audit payloads.
+Anthropic の API キーを使わず、Claude サブスクリプションの認証でシート単位の
+PoC を動かすための実験的なプロバイダ。Cloudflare Worker 内で完結し、UI・D1 の
+ノート保存・バージョニング・ツール呼び出しの監査ペイロードはそのまま使える。
 
-Before running the helper, make sure Wrangler is logged into the Cloudflare
-account that should own the Worker:
+#### 事前準備
 
 ```sh
-npx wrangler login
+npx wrangler login          # Worker を置くアカウントにログイン
+npx wrangler d1 create chat-app   # chat-app D1 が無い場合のみ
 ```
 
-If `cloudflared` is needed for local Cloudflare Tunnel testing, install it from
-Cloudflare's platform-specific instructions:
-https://developers.cloudflare.com/tunnel/downloads/
+D1 を新規作成した場合は、返ってきた `database_id` を `wrangler.jsonc` の `DB`
+バインディングに書く。既存の Worker / D1 構成がある場合は、目的のリモート D1 を
+指しているかぎり既存のバインディングのままでよい（マイグレーションとユーザー
+`1` のシードはヘルパーが実行する）。ローカルで Cloudflare Tunnel を試す場合の
+`cloudflared` は https://developers.cloudflare.com/tunnel/downloads/ から入れる。
 
-If this account does not already have the `chat-app` D1 database, create it and
-copy the returned `database_id` into `wrangler.jsonc` under the `DB` binding:
+#### セットアップ
 
-```sh
-npx wrangler d1 create chat-app
-```
-
-If the account already has a Worker/D1 setup, keep the existing
-`wrangler.jsonc` binding as long as it points at the intended remote D1
-database. The helper applies migrations and seeds user `1` for that database.
-
-Run the setup helper on a machine where Claude Code and Wrangler are installed
-and Claude Code is logged in:
+Claude Code と Wrangler がインストール済みで、Claude Code にログインしている
+マシンで実行する:
 
 ```sh
 node scripts/claude-oauth-cloudflare.mjs --apply
 ```
 
-The helper is the authoritative setup path. It captures the full local
-`claude -p` Messages API request envelope, replays that exact envelope, verifies
-the app-shaped request built from `src/instructions.md` and `src/tools.json`,
-stores the non-secret captured envelope in remote D1 table
-`claude_oauth_template`, deploys the Worker with
-`CLAUDE_OAUTH_TEMPLATE_SOURCE=d1`, uploads the captured bearer token as the
-`ANTHROPIC_OAUTH_TOKEN` Worker secret, applies remote D1 migrations, seeds user
-`1`, and verifies `/api/chat`.
+このヘルパーが正式なセットアップ手段で、次を一括で行う:
 
-For Claude OAuth deployments, use this helper instead of `npm run deploy`.
-Plain Wrangler deploys do not include the Claude OAuth Worker variables and can
-leave the Worker on the default OpenAI provider path.
+- ローカルの `claude -p` の Messages API リクエストをそのまま捕捉して再送し、
+  `src/instructions.md` と `src/tools.json` から組み立てたアプリ形式の
+  リクエストを検証
+- 捕捉したエンベロープ（秘密情報なし）をリモート D1 の
+  `claude_oauth_template` テーブルに保存
+- `CLAUDE_OAUTH_TEMPLATE_SOURCE=d1` で Worker をデプロイし、bearer トークンを
+  `ANTHROPIC_OAUTH_TOKEN` シークレットとして登録
+- リモート D1 のマイグレーション適用、ユーザー `1` のシード、`/api/chat` の検証
 
-By default the Claude OAuth provider deploys with `claude-haiku-4-5` for lower
-latency. To use a different Claude model, pass `--model` to the helper or set
-`ANTHROPIC_MODEL` in the Worker environment.
+macOS / Linux / Windows（PowerShell・`cmd` 可、Git Bash 不要）で動作する。
+リクエスト捕捉に `openssl` が必要で、Windows で `PATH` に無い場合は Git for
+Windows 同梱のものにフォールバックする。
 
-When the helper deploys the Worker, it usually detects the new `workers.dev`
-URL from Wrangler output. If deploying was skipped or the URL cannot be
-detected, pass it explicitly:
+Claude OAuth 構成では `npm run deploy` ではなくこのヘルパーを使うこと。素の
+Wrangler デプロイは Claude OAuth 用の Worker 変数を含まず、Worker が既定の
+OpenAI プロバイダのままになることがある。
+
+#### オプション
+
+既定のモデルはレイテンシ重視で `claude-haiku-4-5`。変更するにはヘルパーに
+`--model` を渡すか、Worker 環境で `ANTHROPIC_MODEL` を設定する。
+
+`workers.dev` の URL は通常 Wrangler の出力から自動検出されるが、デプロイを
+スキップした場合や検出できない場合は明示的に渡す:
 
 ```sh
 node scripts/claude-oauth-cloudflare.mjs --apply --worker-url https://your-worker.example
 ```
 
-To validate auth and header capture without changing Cloudflare:
+Cloudflare を変更せずに認証とヘッダ捕捉だけ確認する場合:
 
 ```sh
 node scripts/claude-oauth-cloudflare.mjs
 ```
 
-Future changes to the Claude OAuth path should pass the CI-safe checks:
+#### ローカル開発
+
+`npm run dev` 用のローカル環境は `--local-setup` で一括構築できる。Cloudflare は
+変更しないので `--apply` は不要:
+
+```sh
+node scripts/claude-oauth-cloudflare.mjs --local-setup
+```
+
+これはローカル D1 にマイグレーションを適用してユーザー `1` をシードし、捕捉した
+リクエストテンプレートをローカル D1 の `claude_oauth_template` に入れ、デプロイ時に
+`--var` で渡しているのと同じ変数（`CHAT_API_PROVIDER`、`ANTHROPIC_OAUTH_TOKEN`、
+`ANTHROPIC_MODEL`、`ANTHROPIC_BETA`、`CLAUDE_CODE_USER_AGENT`、`CLAUDE_CODE_X_APP`、
+`CLAUDE_OAUTH_TEMPLATE_SOURCE=d1` など）を `.dev.vars` に書き込む。既存の行は
+キー単位で上書きし、無関係な行は残す。書き込み後は dev サーバを再起動する。
+
+この一括設定が必要なのは、テンプレートとヘッダが揃っていないと Worker が
+`buildDefaultOAuthBody` の既定形状で送ってしまうため。既定形状には捕捉した
+Claude Code の system ブロックも `anthropic-beta` / `x-app` ヘッダも無く、モデルに
+よっては Anthropic に 429 で弾かれる（`claude-haiku-4-5` は通るのに
+`claude-opus-5` が通らない、という症状になる）。
+
+トークンだけ入れ替えたい場合（失効して `/api/chat` が 401 を返したときなど）:
+
+```sh
+node scripts/claude-oauth-cloudflare.mjs --write-dev-vars
+```
+
+どちらも `--write-dev-vars=path/to/file` / `--local-setup=path/to/file` で書き込み先を
+変えられる。捕捉した bearer トークンは短命なので、ローカルで長く使いたい場合は
+`claude setup-token` の値に差し替える方が持ちがよい。
+
+#### テスト
+
+Claude OAuth 周りを変更したら、CI で回る次のチェックを通すこと:
 
 ```sh
 npx tsc --noEmit
@@ -98,14 +130,11 @@ node --test tests/*.mjs
 npm run build
 ```
 
-The CI-safe tests do not require Claude Code. The local helper test above does
-require the `claude` binary, an active Claude subscription login, network access
-to Anthropic, and a real Cloudflare account when `--apply` is used; keep it as a
-local release gate rather than a CI job.
-
-The GitLab CI pipeline only checks request-shape invariants, TypeScript, and the
-build. It does not deploy to Cloudflare and does not need Cloudflare credentials
-or a Claude subscription token.
+これらに Claude Code は不要。一方、上記のヘルパー実行には `claude` バイナリ、
+有効な Claude サブスクリプションのログイン、Anthropic への通信、（`--apply`
+時は）実際の Cloudflare アカウントが要るため、CI ジョブではなくローカルの
+リリースゲートとして扱う。GitLab CI はリクエスト形状の不変条件・TypeScript・
+ビルドのみを検証し、Cloudflare へのデプロイも認証情報も行わない。
 
 Create db:
 

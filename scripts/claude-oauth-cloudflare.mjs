@@ -12,8 +12,11 @@ const DEFAULT_MAX_TOKENS = '4096'
 const DEFAULT_MAX_TURNS = '3'
 const DEFAULT_MODEL = 'claude-haiku-4-5'
 const WORKER_SMOKE_THREAD_PREFIX = '__claude_oauth_smoke__'
+const DEV_VARS_TOKEN_KEY = 'ANTHROPIC_OAUTH_TOKEN'
 const APP_PROBE_PROMPT =
   'これはClaude OAuth接続確認です。学習内容ではありません。短く接続確認だけ返してください。'
+
+const isWindows = process.platform === 'win32'
 
 const isCli = Boolean(process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
 const args = isCli ? parseArgs(process.argv.slice(2)) : {}
@@ -30,12 +33,12 @@ async function main() {
     fail('Claude Code is not installed or is not on PATH.')
   }
 
-  const claudeVersion = getClaudeVersion()
+  const claudeVersion = getClaudeVersion(claudePath)
   const maxTokens = getArg('max-tokens', DEFAULT_MAX_TOKENS)
   const maxTurns = getArg('max-turns', DEFAULT_MAX_TURNS)
 
   log(`Claude Code: ${claudeVersion}`)
-  await ensureClaudeLogin()
+  await ensureClaudeLogin(claudePath)
 
   const captured = await captureClaudeRequest(claudePath)
   validateCapturedRequest(captured, claudeVersion)
@@ -62,14 +65,40 @@ async function main() {
     log('Local app-shaped OAuth probe passed.')
   }
 
+  if (args['local-setup']) {
+    requireWrangler()
+    await runWrangler(['d1', 'migrations', 'apply', 'chat-app', '--local'])
+    await runWrangler([
+      'd1',
+      'execute',
+      'chat-app',
+      '--local',
+      '--command',
+      "INSERT OR IGNORE INTO users (id, name) VALUES (1, 'Test User');",
+    ])
+    log('Local D1 migrations/user seed checked.')
+    await uploadCapturedTemplate(captured.headers, captured.bodyText, '--local')
+    log('Seeded the captured request template into local D1.')
+    const devVarsPath = writeLocalSetupDevVars({
+      token,
+      model,
+      maxTokens,
+      maxTurns,
+      claudeVersion,
+      capturedHeaders: captured.headers,
+    })
+    log(`Wrote Claude OAuth vars to ${devVarsPath}. Restart the dev server to pick them up.`)
+  } else if (args['write-dev-vars']) {
+    const devVarsPath = writeDevVarsToken(token)
+    log(`Wrote ${DEV_VARS_TOKEN_KEY} to ${devVarsPath}. Restart the dev server to pick it up.`)
+  }
+
   if (!args.apply) {
     log('Dry run complete. Re-run with --apply to upload the D1 template, deploy, upload the secret, and test the Worker.')
     return
   }
 
-  if (!which('wrangler') && !hasLocalWrangler()) {
-    fail('Wrangler is not installed and local node_modules wrangler was not found.')
-  }
+  requireWrangler()
 
   if (!args['skip-template-upload']) {
     await uploadCapturedTemplate(captured.headers, captured.bodyText)
@@ -163,18 +192,120 @@ function fail(message) {
 }
 
 function which(command) {
+  const resolved = resolveExecutable(command)
+  if (resolved) {
+    return resolved
+  }
+  if (isWindows) {
+    return resolveWindowsFallback(command)
+  }
   const result = spawnSync('sh', ['-lc', `command -v ${quoteShell(command)}`], {
     encoding: 'utf8',
   })
   return result.status === 0 ? result.stdout.trim() : ''
 }
 
+function resolveExecutable(command) {
+  const raw = String(command)
+  if (raw.includes('/') || raw.includes('\\')) {
+    return isExecutableFile(raw) ? path.resolve(raw) : ''
+  }
+  for (const directory of (process.env.PATH || '').split(path.delimiter)) {
+    if (!directory) {
+      continue
+    }
+    const base = path.join(directory.replace(/^"|"$/g, ''), raw)
+    for (const extension of executableExtensions(raw)) {
+      if (isExecutableFile(base + extension)) {
+        return base + extension
+      }
+    }
+  }
+  return ''
+}
+
+function executableExtensions(command) {
+  if (!isWindows) {
+    return ['']
+  }
+  const pathExtensions = (process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)
+  const hasKnownExtension = pathExtensions.some((extension) => command.toLowerCase().endsWith(extension.toLowerCase()))
+  return hasKnownExtension ? [''] : pathExtensions
+}
+
+function isExecutableFile(candidate) {
+  try {
+    if (!fs.statSync(candidate).isFile()) {
+      return false
+    }
+    if (!isWindows) {
+      fs.accessSync(candidate, fs.constants.X_OK)
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
+// Git for Windows ships openssl, but its usr/bin is not on PATH outside Git Bash.
+function resolveWindowsFallback(command) {
+  if (command !== 'openssl') {
+    return ''
+  }
+  const roots = []
+  const git = resolveExecutable('git')
+  if (git) {
+    roots.push(path.dirname(path.dirname(git)))
+  }
+  for (const base of [process.env.ProgramW6432, process.env.ProgramFiles, process.env['ProgramFiles(x86)'], process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Programs')]) {
+    if (base) {
+      roots.push(path.join(base, 'Git'))
+    }
+  }
+  for (const root of roots) {
+    const candidate = path.join(root, 'usr', 'bin', 'openssl.exe')
+    if (isExecutableFile(candidate)) {
+      return candidate
+    }
+  }
+  return ''
+}
+
+// Windows cannot spawn .cmd/.bat shims directly, so route them through cmd.exe.
+function toSpawnable(command, argv = []) {
+  const resolved = resolveExecutable(command) || command
+  if (isWindows && /\.(cmd|bat)$/i.test(resolved)) {
+    const line = [escapeWindowsCommand(resolved), ...argv.map(escapeWindowsArgument)].join(' ')
+    return {
+      command: process.env.ComSpec || 'cmd.exe',
+      argv: ['/d', '/s', '/c', `"${line}"`],
+      options: { windowsVerbatimArguments: true },
+    }
+  }
+  return { command: resolved, argv, options: {} }
+}
+
+const WINDOWS_META_CHARACTERS = /([()[\]{}^=;!'+,`~ \t%&|<>"?*])/g
+
+function escapeWindowsCommand(value) {
+  return String(value).replace(WINDOWS_META_CHARACTERS, '^$1')
+}
+
+function escapeWindowsArgument(value) {
+  const quoted = `"${String(value)
+    .replace(/(\\*)"/g, '$1$1\\"')
+    .replace(/(\\*)$/, '$1$1')}"`
+  return quoted.replace(WINDOWS_META_CHARACTERS, '^$1')
+}
+
 function quoteShell(value) {
   return `'${String(value).replaceAll("'", "'\\''")}'`
 }
 
-function getClaudeVersion() {
-  const result = spawnSync('claude', ['--version'], {
+function getClaudeVersion(claudePath) {
+  const spawnable = toSpawnable(claudePath, ['--version'])
+  const result = spawnSync(spawnable.command, spawnable.argv, {
+    ...spawnable.options,
     encoding: 'utf8',
     timeout: 5000,
   })
@@ -188,12 +319,14 @@ function getClaudeVersion() {
   return version
 }
 
-async function ensureClaudeLogin() {
+async function ensureClaudeLogin(claudePath) {
   if (args['skip-login']) {
     return
   }
 
-  const status = spawnSync('claude', ['auth', 'status'], {
+  const statusSpawnable = toSpawnable(claudePath, ['auth', 'status'])
+  const status = spawnSync(statusSpawnable.command, statusSpawnable.argv, {
+    ...statusSpawnable.options,
     encoding: 'utf8',
     timeout: 10000,
   })
@@ -202,12 +335,91 @@ async function ensureClaudeLogin() {
   }
 
   log('Claude auth status is not OK. Starting `claude auth login --claudeai`.')
-  const login = spawnSync('claude', ['auth', 'login', '--claudeai'], {
+  const loginSpawnable = toSpawnable(claudePath, ['auth', 'login', '--claudeai'])
+  const login = spawnSync(loginSpawnable.command, loginSpawnable.argv, {
+    ...loginSpawnable.options,
     stdio: 'inherit',
   })
   if (login.status !== 0) {
     fail('Claude login failed.')
   }
+}
+
+// The captured bearer token is short-lived, so this is a local-dev convenience only.
+// Deployed Workers get the token through `wrangler secret put` instead.
+function writeDevVarsToken(token, target = getArg('write-dev-vars', '.dev.vars')) {
+  return writeDevVars({ [DEV_VARS_TOKEN_KEY]: token }, target, { warnOnMismatch: true })
+}
+
+// Local dev has no `wrangler deploy --var` step, so the vars deployWorker() passes
+// have to be mirrored into .dev.vars or the Worker falls back to the default
+// request shape, which Anthropic does not accept for every model.
+function writeLocalSetupDevVars({ token, model, maxTokens, maxTurns, claudeVersion, capturedHeaders }) {
+  const entries = {
+    CHAT_API_PROVIDER: 'claude-oauth',
+    [DEV_VARS_TOKEN_KEY]: token,
+    ANTHROPIC_MODEL: model,
+    ANTHROPIC_MAX_TOKENS: maxTokens,
+    CLAUDE_MAX_TURNS: maxTurns,
+    CLAUDE_CODE_VERSION: claudeVersion,
+    CLAUDE_CODE_USER_AGENT: capturedHeaders['user-agent'],
+    ANTHROPIC_BETA: capturedHeaders['anthropic-beta'],
+    ANTHROPIC_DANGEROUS_DIRECT_BROWSER_ACCESS: capturedHeaders['anthropic-dangerous-direct-browser-access'],
+    CLAUDE_CODE_X_APP: capturedHeaders['x-app'],
+    CLAUDE_OAUTH_TEMPLATE_SOURCE: 'd1',
+  }
+  return writeDevVars(entries, getArg('local-setup', '.dev.vars'))
+}
+
+function writeDevVars(entries, target, { warnOnMismatch = false } = {}) {
+  const devVarsPath = path.resolve(process.cwd(), target)
+  let existing = ''
+  try {
+    existing = fs.readFileSync(devVarsPath, 'utf8')
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      fail(`Could not read ${devVarsPath}: ${error.message}`)
+    }
+  }
+
+  const eol = existing.includes('\r\n') ? '\r\n' : '\n'
+  const lines = existing.split(/\r?\n/)
+  while (lines.length && lines[lines.length - 1] === '') {
+    lines.pop()
+  }
+
+  for (const [key, value] of Object.entries(entries)) {
+    if (value === undefined || value === '') {
+      continue
+    }
+    const line = `${key}=${value}`
+    const index = lines.findIndex((entry) => entry.startsWith(`${key}=`))
+    if (index === -1) {
+      lines.push(line)
+    } else {
+      lines[index] = line
+    }
+  }
+
+  fs.writeFileSync(devVarsPath, `${lines.join(eol)}${eol}`, { encoding: 'utf8', mode: 0o600 })
+  if (warnOnMismatch) {
+    warnDevVarsMismatch(lines)
+  }
+  return devVarsPath
+}
+
+function warnDevVarsMismatch(lines) {
+  if (readDevVarsValue(lines, 'CHAT_API_PROVIDER') !== 'claude-oauth') {
+    log('Warning: CHAT_API_PROVIDER is not claude-oauth in this file, so local dev will not use the Claude OAuth provider.')
+  }
+  if (readDevVarsValue(lines, 'CLAUDE_OAUTH_TEMPLATE_SOURCE') === 'd1') {
+    log('Warning: CLAUDE_OAUTH_TEMPLATE_SOURCE=d1 needs a seeded claude_oauth_template row in local D1. Re-run with --local-setup to seed it.')
+  }
+}
+
+function readDevVarsValue(lines, key) {
+  const line = lines.find((entry) => entry.startsWith(`${key}=`))
+  return line === undefined ? undefined : line.slice(key.length + 1).trim()
 }
 
 function validateOAuthTokenShape(token, source) {
@@ -256,7 +468,9 @@ async function captureClaudeRequest(claudePath) {
       delete env.ANTHROPIC_AUTH_TOKEN
       delete env.ANTHROPIC_BASE_URL
 
-      const child = spawn(claudePath, ['-p', APP_PROBE_PROMPT, '--no-session-persistence'], {
+      const spawnable = toSpawnable(claudePath, ['-p', APP_PROBE_PROMPT, '--no-session-persistence'])
+      const child = spawn(spawnable.command, spawnable.argv, {
+        ...spawnable.options,
         cwd: tempDir,
         env,
         stdio: ['ignore', 'ignore', 'pipe'],
@@ -328,8 +542,10 @@ function generateCaptureCertificates(tempDir, openssl) {
 }
 
 function run(command, argv, options = {}) {
-  const result = spawnSync(command, argv, {
+  const spawnable = toSpawnable(command, argv)
+  const result = spawnSync(spawnable.command, spawnable.argv, {
     encoding: 'utf8',
+    ...spawnable.options,
     ...options,
   })
   if (result.status !== 0) {
@@ -371,11 +587,21 @@ function startCaptureProxy(secureContext) {
       }
       const headers = parseHttpHeaders(requestHead)
       const bodyText = await readRequestBody(tlsSocket, Number(headers['content-length'] || 0), rest)
+      const body = summarizeCapturedBody(bodyText)
+      // Claude Code fires background side requests (session title, topic detection) that
+      // race the agent request on separate connections. Only the agent request carries the
+      // tool definitions, and capturing a side request bakes its instructions - "generate a
+      // title for this session" - into the template every app reply is then built from.
+      if (!body?.toolCount) {
+        events.push(`skipped side request: model=${body?.model || '<unparsed>'} tools=0 bytes=${body?.bodyBytes ?? 0}`)
+        respondToSkippedRequest(tlsSocket)
+        return
+      }
       resolveRequest({
         headers: redactCapturedHeaders(headers),
         oauthToken: parseBearerToken(headers.authorization),
         bodyText,
-        body: summarizeCapturedBody(bodyText),
+        body,
       })
       respondToCapturedRequest(tlsSocket)
     } catch (error) {
@@ -423,6 +649,20 @@ function respondToCapturedRequest(socket) {
     },
   })
   socket.end(`HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`)
+}
+
+// Side requests get a retryable error rather than the 401 used for the captured request:
+// an auth failure on a background task can make the CLI give up before it sends the agent
+// request we are actually waiting for.
+function respondToSkippedRequest(socket) {
+  const body = JSON.stringify({
+    type: 'error',
+    error: {
+      type: 'rate_limit_error',
+      message: 'skipped by capture proxy',
+    },
+  })
+  socket.end(`HTTP/1.1 429 Too Many Requests\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`)
 }
 
 function readHeaderBlock(socket) {
@@ -530,8 +770,13 @@ function validateCapturedRequest(captured, claudeVersion) {
   if (!captured.body?.hasSystem) {
     problems.push('Captured request did not include the Claude Code top-level system envelope')
   }
+  if (!captured.body?.toolCount) {
+    problems.push('Captured request carried no tool definitions, so it is a Claude Code side request (session title/topic detection) rather than the agent request')
+  }
   if (!captured.body?.hasMessageSystem) {
-    problems.push('Captured request did not include the message-level system slot')
+    // Claude Code moved its system prefix to the top-level `system` field, which is
+    // the slot the app builder uses too, so this is informational rather than fatal.
+    log('Captured request had no message-level system slot; using the top-level system envelope only.')
   }
   if (problems.length) {
     fail(`Claude CLI request contract changed:\n- ${problems.join('\n- ')}`)
@@ -755,7 +1000,7 @@ function parseJson(text) {
   }
 }
 
-async function uploadCapturedTemplate(headers, bodyText) {
+async function uploadCapturedTemplate(headers, bodyText, target = '--remote') {
   const sqlPath = path.join(os.tmpdir(), `chat-claude-oauth-template-${process.pid}.sql`)
   const statements = [
     'CREATE TABLE IF NOT EXISTS claude_oauth_template (id INTEGER PRIMARY KEY CHECK (id = 1), headers TEXT NOT NULL, body TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);',
@@ -763,7 +1008,7 @@ async function uploadCapturedTemplate(headers, bodyText) {
   ]
   fs.writeFileSync(sqlPath, `${statements.join('\n')}\n`)
   try {
-    await runWrangler(['d1', 'execute', 'chat-app', '--remote', '--file', sqlPath])
+    await runWrangler(['d1', 'execute', 'chat-app', target, '--file', sqlPath])
   } finally {
     await fsp.rm(sqlPath, { force: true })
   }
@@ -773,12 +1018,23 @@ function sqlString(value) {
   return `'${String(value).replaceAll("'", "''")}'`
 }
 
+function localWranglerPath() {
+  const candidate = path.join(process.cwd(), 'node_modules', '.bin', isWindows ? 'wrangler.cmd' : 'wrangler')
+  return fs.existsSync(candidate) ? candidate : ''
+}
+
 function hasLocalWrangler() {
-  return fs.existsSync(path.join(process.cwd(), 'node_modules', '.bin', process.platform === 'win32' ? 'wrangler.cmd' : 'wrangler'))
+  return Boolean(localWranglerPath())
+}
+
+function requireWrangler() {
+  if (!which('wrangler') && !hasLocalWrangler()) {
+    fail('Wrangler is not installed and local node_modules wrangler was not found.')
+  }
 }
 
 async function runWrangler(argv, options = {}) {
-  const command = which('wrangler') ? 'wrangler' : 'npx'
+  const command = which('wrangler') || localWranglerPath() || 'npx'
   const fullArgv = command === 'npx' ? ['wrangler', ...argv] : argv
   const result = await runProcess(command, fullArgv, options)
   return result.stdout
@@ -786,7 +1042,9 @@ async function runWrangler(argv, options = {}) {
 
 function runProcess(command, argv, options = {}) {
   return new Promise((resolvePromise) => {
-    const child = spawn(command, argv, {
+    const spawnable = toSpawnable(command, argv)
+    const child = spawn(spawnable.command, spawnable.argv, {
+      ...spawnable.options,
       stdio: ['pipe', 'pipe', 'pipe'],
       env: process.env,
     })
@@ -945,4 +1203,8 @@ export {
   capturedRequestHeaders,
   exactReplayHeaders,
   shouldForwardCapturedHeader,
+  toSpawnable,
+  which,
+  writeDevVars,
+  writeDevVarsToken,
 }
