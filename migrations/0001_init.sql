@@ -1,7 +1,12 @@
+-- 初期スキーマ。過去の 0001〜0003 を1本に統合したもの。
+-- 統合前のマイグレーションを適用済みのデータベースでは、wrangler は
+-- d1_migrations に 0001_init.sql の記録が残っているため何も実行しない。
+
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  google_sub TEXT NOT NULL UNIQUE,
+  email TEXT NOT NULL UNIQUE,
   name TEXT NOT NULL,
-  session_id TEXT UNIQUE,
   memory TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -26,6 +31,7 @@ CREATE TABLE IF NOT EXISTS messages (
   model TEXT,
   response_id TEXT,
   raw_response TEXT,
+  tool_payload TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (thread_id) REFERENCES threads(id)
@@ -34,12 +40,32 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE TABLE IF NOT EXISTS notes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   thread_id INTEGER NOT NULL,
-  title TEXT NOT NULL,
+  title TEXT NOT NULL DEFAULT '',
   content TEXT NOT NULL,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (thread_id) REFERENCES threads(id)
 );
+
+-- セッション。id はセッショントークンの SHA-256 hex。
+-- 生のトークンは Cookie にしか存在せず、DB が漏れても復元できない。
+CREATE TABLE IF NOT EXISTS sessions (
+  id TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  expires_at DATETIME NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- 捕捉した Claude Code のリクエスト雛形。秘密情報は含まない。
+CREATE TABLE IF NOT EXISTS claude_oauth_template (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  headers TEXT NOT NULL,
+  body TEXT NOT NULL,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 
 CREATE TRIGGER IF NOT EXISTS trigger_users_updated_at AFTER UPDATE ON users
 BEGIN
