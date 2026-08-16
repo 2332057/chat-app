@@ -23,6 +23,56 @@ OPENAI_MAX_TOKENS=30000
 OPENAI_REASONING_EFFORT=high
 ```
 
+## デプロイ構成
+
+同じコードから2つの Worker を動かす。D1 は共有。
+
+| 環境 | Worker | プロバイダ | モデル |
+| --- | --- | --- | --- |
+| `a` | `chat-app-a` | Claude OAuth | `claude-opus-5` |
+| `b` | `chat-app-b` | OpenAI | `gpt-5.6` |
+
+環境の定義は `wrangler.jsonc` の `env` にある。環境は**トップレベルの `vars` を
+継承しない**ので、各環境に必要な変数を全て書くこと。
+
+Vite プラグインが `wrangler.jsonc` をビルド時に1環境へ平坦化して
+`dist/chat_app/wrangler.json` を吐き、wrangler はそちらを見る。つまり環境の選択は
+デプロイ時ではなく**ビルド時**に決まる:
+
+```sh
+CLOUDFLARE_ENV=b npm run deploy   # → chat-app-b
+```
+
+ビルド生成物が残っている状態で素の `wrangler deploy` を叩くと、最後にビルドした
+環境へデプロイされるので注意。
+
+`a` はヘルパー経由でデプロイする（下記 Claude OAuth プロバイダの節を参照）:
+
+```sh
+node scripts/claude-oauth-cloudflare.mjs --apply --env a --model claude-opus-5
+```
+
+### シークレット
+
+Worker ごとに個別に登録する。`--env` を付け忘れるとトップレベルの Worker に入る。
+
+```sh
+npx wrangler secret put GOOGLE_CLIENT_ID --env <a|b>
+npx wrangler secret put GOOGLE_CLIENT_SECRET --env <a|b>
+npx wrangler secret put ALLOWED_GOOGLE_DOMAIN --env <a|b>
+npx wrangler secret put OPENAI_API_KEY --env b   # b のみ
+```
+
+`OPENAI_API_KEY` に入れるのは、OpenAI の `sk-...` ではなく **Cloudflare AI Gateway
+のトークン**（`cfut_` で始まる）。このゲートウェイは認証付きで、トークンを受け取った
+ゲートウェイ側が OpenAI のキーを注入する。誤って OpenAI のキーを入れると、
+ゲートウェイが `401 [{"code":2009,"message":"Unauthorized"}]` を返す。
+
+`a` の `ANTHROPIC_OAUTH_TOKEN` はヘルパーが自動で登録する。
+
+Google Cloud Console の OAuth クライアントには、Worker ごとにリダイレクト URI を
+追加すること（`https://<worker>.workers.dev/auth/callback`）。
+
 ### Claude OAuth プロバイダ
 
 Anthropic の API キーを使わず、Claude サブスクリプションの認証でシート単位の
