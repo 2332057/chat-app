@@ -172,6 +172,37 @@ export default function Home() {
     }
   }
 
+  const deleteThread = async () => {
+    if (!activeThreadId) return
+    const current = threadList.find((t) => String(t.id) === String(activeThreadId))
+    if (!confirm(`「${current?.title || 'このチャット'}」を削除しますか？`)) return
+
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/threads/${activeThreadId}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('チャットの削除に失敗しました')
+
+      const remaining = threadList.filter((t) => String(t.id) !== String(activeThreadId))
+      setThreadList(remaining)
+
+      // 削除したのは表示中のスレッドなので、必ず別のスレッドへ移す。
+      // 1つも残らなければ空の画面にせず新規作成する。
+      if (remaining.length > 0) {
+        selectThread(remaining[0].id)
+        return
+      }
+      sessionStorage.removeItem(ACTIVE_THREAD_STORAGE_KEY)
+      setMessages([])
+      setNotes([])
+      await createThread([])
+    } catch (e) {
+      console.error(e)
+      alert('チャットの削除に失敗しました。')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const send = async () => {
     if (busy || !activeThreadId) return
 
@@ -262,6 +293,9 @@ export default function Home() {
       </button>
       <button type="button" onClick={editThreadTitle} disabled={busy || !activeThreadId}>
         編集
+      </button>
+      <button type="button" onClick={() => void deleteThread()} disabled={busy || !activeThreadId}>
+        削除
       </button>
     </div>
   )

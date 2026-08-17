@@ -131,6 +131,28 @@ app.patch('/api/threads/:id', async (c) => {
   }
 })
 
+// 論理削除。行は残すのでチャット履歴とノートは失われない。
+app.delete('/api/threads/:id', async (c) => {
+  try {
+    const threadId = c.req.param('id')
+
+    const { results } = await c.env.DB.prepare(
+      'UPDATE threads SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ? AND deleted_at IS NULL RETURNING id',
+    )
+      .bind(threadId, c.get('user').id)
+      .all()
+
+    if (results.length === 0) {
+      return c.json({ error: 'スレッドが見つかりません。' }, 404)
+    }
+
+    return c.json({ ok: true })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: 'スレッドの削除に失敗しました。' }, 500)
+  }
+})
+
 app.post('/api/chat', async (c) => {
   const body = await c.req.json<ChatRequestBody>().catch(() => null)
   const threadId = body?.threadId
