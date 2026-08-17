@@ -67,6 +67,14 @@ export default function Home() {
           return
         }
 
+        // 選択の記憶は sessionStorage なので、新しいタブで開くたびに空になる。
+        // ここで作ってしまうと開くたびに空のスレッドが増えるため、
+        // 既存があれば最終更新が新しいものを開き、本当に無いときだけ作る。
+        if (existingThreads.length > 0) {
+          selectThread(existingThreads[0].id)
+          return
+        }
+
         await createThread(existingThreads)
       } catch (e) {
         console.error('Failed to fetch threads', e)
