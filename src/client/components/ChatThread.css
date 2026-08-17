@@ -25,3 +25,22 @@
 .message-text {
   margin: 0;
 }
+
+/* 推論(HTMLコメント)は既定で畳んでおく */
+
+.message-reasoning {
+  margin: 16px 0;
+}
+.message-reasoning > summary {
+  cursor: pointer;
+  font-size: .75rem;
+}
+.message-reasoning-text {
+  border-left: 2px solid #ddd;
+  margin-bottom: .5rem;
+  padding-left: .5rem;
+  color: #666;
+  font-size: .875rem;
+  margin: .25rem 0 0;
+  white-space: pre-wrap;
+}

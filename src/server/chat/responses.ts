@@ -103,7 +103,8 @@ export async function runResponsesChat(ctx: ChatProviderContext): Promise<ChatPr
 
     // ツールの実行結果をAPIに渡し、最終的な返答を生成させる
     // function_call と同じ output に message が並ぶことがあるので、そのテキストも残して表示する
-    const preface = stripHtmlComments(extractResponseText(response))
+    // 推論の HTML コメントは削らずに保存し、表示側で折りたたむ
+    const preface = extractResponseText(response).trim()
     const functionLog = buildToolTurnContent(preface, logs)
     const toolPayload = buildToolPayload(appCalls, outputs, preface)
     await db
@@ -151,9 +152,10 @@ export async function runResponsesChat(ctx: ChatProviderContext): Promise<ChatPr
   }
 
   // テキストを安全に抽出（配列で返ってきた場合にも対応）
-  const reply = stripHtmlComments(extractResponseText(response))
+  const reply = extractResponseText(response).trim()
 
-  if (!reply) {
+  // 推論コメントだけで本文が無い場合は返答なしとして扱う
+  if (!stripHtmlComments(reply)) {
     throw new EmptyReplyError()
   }
 

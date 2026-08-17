@@ -2,6 +2,7 @@
 
 import './ChatThread.css'
 import { ChatThreadType } from '../../types/chat'
+import { splitReasoning } from '../utils/reasoning'
 import { MDView } from './MDView'
 
 export default function ChatThread({ messages }: ChatThreadType) {
@@ -20,7 +21,17 @@ export default function ChatThread({ messages }: ChatThreadType) {
               {m.content}
             </p>
           )}
-          {m.role === 'assistant' && <MDView content={m.content} />}
+          {m.role === 'assistant' &&
+            splitReasoning(m.content).map((segment, index) =>
+              segment.type === 'reasoning' ? (
+                <details key={index} className="message-reasoning">
+                  <summary>推論</summary>
+                  <p className="message-reasoning-text">{segment.value}</p>
+                </details>
+              ) : (
+                <MDView key={index} content={segment.value} />
+              ),
+            )}
         </div>
         )
       })}

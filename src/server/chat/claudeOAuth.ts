@@ -213,7 +213,8 @@ export async function runClaudeOAuthChat(ctx: ChatProviderContext): Promise<Chat
     result.notes.push(...notes)
 
     // tool_use と同じレスポンスに text ブロックが並ぶことがあるので、それも残して表示する
-    const preface = stripHtmlComments(extractReply(response))
+    // 推論の HTML コメントは削らずに保存し、表示側で折りたたむ
+    const preface = extractReply(response)
     const functionLog = buildToolTurnContent(preface, logs)
     const toolPayload = buildToolPayload(appCalls, outputs, preface)
     const toolAuditStart = performance.now()
@@ -246,8 +247,9 @@ export async function runClaudeOAuthChat(ctx: ChatProviderContext): Promise<Chat
     response = await createAnthropicMessage(ctx, messages, round < maxToolRounds - 1)
   }
 
-  const reply = stripHtmlComments(extractReply(response))
-  if (!reply) {
+  const reply = extractReply(response)
+  // 推論コメントだけで本文が無い場合は返答なしとして扱う
+  if (!stripHtmlComments(reply)) {
     throw new EmptyReplyError()
   }
 

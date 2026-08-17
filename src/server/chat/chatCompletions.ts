@@ -70,7 +70,8 @@ export async function runChatCompletionsChat(ctx: ChatProviderContext): Promise<
 
     // ツールの実行結果をAPIに渡し、最終的な返答を生成させる
     // tool_calls と content が同時に返ることがあるので、その content も残して表示する
-    const preface = stripHtmlComments(message?.content || '')
+    // 推論の HTML コメントは削らずに保存し、表示側で折りたたむ
+    const preface = (message?.content || '').trim()
     const functionLog = buildToolTurnContent(preface, logs)
     const toolPayload = buildToolPayload(appCalls, outputs, preface)
     await db
@@ -118,8 +119,9 @@ export async function runChatCompletionsChat(ctx: ChatProviderContext): Promise<
     message = completion.choices[0]?.message
   }
 
-  const reply = stripHtmlComments(message?.content || '')
-  if (!reply) {
+  const reply = (message?.content || '').trim()
+  // 推論コメントだけで本文が無い場合は返答なしとして扱う
+  if (!stripHtmlComments(reply)) {
     if (completion.choices[0]?.finish_reason === 'length') {
       throw new Error('モデルの出力がトークン上限で打ち切られました（OPENAI_MAX_TOKENS の引き上げ、または reasoning_effort を下げてください）')
     }
