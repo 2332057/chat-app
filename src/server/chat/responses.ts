@@ -1,6 +1,6 @@
 import SYSTEM_INSTRUCTIONS from '../../instructions.md?raw'
 
-import { buildToolPayload, responseTools, runAppToolCalls, toResponsesInputItems } from './toolCalls'
+import { buildToolPayload, buildToolTurnContent, responseTools, runAppToolCalls, toResponsesInputItems } from './toolCalls'
 import type { AppToolCall } from './toolCalls'
 import { EmptyReplyError } from './types'
 import type { ChatProviderContext, ChatProviderResult } from './types'
@@ -34,6 +34,20 @@ async function buildResponsesInputHistory(
     }
   }
   return input
+}
+
+// output の message アイテムからテキストを取り出す。function_call と同じ output に並ぶこともある
+function extractResponseText(response: any): string {
+  if (typeof response?.output_text === 'string' && response.output_text) {
+    return response.output_text
+  }
+  if (Array.isArray(response?.output)) {
+    const message = response.output.find((o: any) => o.type === 'message')
+    if (message && Array.isArray(message.content)) {
+      return message.content.map((c: any) => c.text || c.output_text || '').join('')
+    }
+  }
+  return ''
 }
 
 export async function runResponsesChat(ctx: ChatProviderContext): Promise<ChatProviderResult> {
@@ -88,8 +102,10 @@ export async function runResponsesChat(ctx: ChatProviderContext): Promise<ChatPr
     }
 
     // ツールの実行結果をAPIに渡し、最終的な返答を生成させる
-    const functionLog = 'ツール実行: ' + logs.join('\n')
-    const toolPayload = buildToolPayload(appCalls, outputs)
+    // function_call と同じ output に message が並ぶことがあるので、そのテキストも残して表示する
+    const preface = stripHtmlComments(extractResponseText(response))
+    const functionLog = buildToolTurnContent(preface, logs)
+    const toolPayload = buildToolPayload(appCalls, outputs, preface)
     await db
       .prepare('INSERT INTO messages (thread_id, role, content, response_id, model, raw_response, tool_payload) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .bind(threadId, 'assistant', functionLog, response.id || null, response.model ?? model, JSON.stringify(response), toolPayload)
@@ -135,14 +151,7 @@ export async function runResponsesChat(ctx: ChatProviderContext): Promise<ChatPr
   }
 
   // テキストを安全に抽出（配列で返ってきた場合にも対応）
-  let reply = response.output_text || ''
-  if (!reply && Array.isArray(response.output)) {
-    const msg = response.output.find((o: any) => o.type === 'message')
-    if (msg && Array.isArray(msg.content)) {
-      reply = msg.content.map((c: any) => c.text || c.output_text || '').join('')
-    }
-  }
-  reply = stripHtmlComments(reply)
+  const reply = stripHtmlComments(extractResponseText(response))
 
   if (!reply) {
     throw new EmptyReplyError()

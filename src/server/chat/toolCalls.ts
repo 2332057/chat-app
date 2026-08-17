@@ -82,11 +82,16 @@ export async function runAppToolCalls(db: D1Database, threadId: string | number,
 export type ToolPayload = {
   calls: AppToolCall[]
   outputs: AppToolResult[]
+  // ツール呼び出しと同じターンにモデルが返した前置きテキスト。無い場合は省略される
+  text?: string
 }
 
 // 実行したツール呼び出しと結果を1つのJSON文字列にまとめる
-export function buildToolPayload(calls: AppToolCall[], outputs: AppToolResult[]): string {
+export function buildToolPayload(calls: AppToolCall[], outputs: AppToolResult[], text = ''): string {
   const payload: ToolPayload = { calls, outputs }
+  if (text) {
+    payload.text = text
+  }
   return JSON.stringify(payload)
 }
 
@@ -97,12 +102,25 @@ function parseToolPayload(raw: string | null | undefined): ToolPayload | null {
   try {
     const parsed = JSON.parse(raw) as ToolPayload
     if (Array.isArray(parsed?.calls) && Array.isArray(parsed?.outputs)) {
-      return parsed
+      // text は後から足したフィールドなので、古い行では欠けている
+      return {
+        calls: parsed.calls,
+        outputs: parsed.outputs,
+        text: typeof parsed.text === 'string' && parsed.text ? parsed.text : undefined,
+      }
     }
   } catch {
     // 壊れたペイロードは無視して履歴から落とす
   }
   return null
+}
+
+const TOOL_LOG_PREFIX = 'ツール実行: '
+
+// ツールターン行の表示用本文。前置きテキストがあればツール実行ログの前に置く
+export function buildToolTurnContent(text: string, logs: string[]): string {
+  const log = TOOL_LOG_PREFIX + logs.join('\n')
+  return text ? `${text}\n\n${log}` : log
 }
 
 function parseToolInput(args: unknown): unknown {
@@ -117,7 +135,7 @@ function parseToolInput(args: unknown): unknown {
 }
 
 // Chat Completions 形式へ復元: assistant(tool_calls) の後に tool(output) を並べる
-export function toChatCompletionMessages(raw: string | null | undefined, assistantContent = ''): any[] | null {
+export function toChatCompletionMessages(raw: string | null | undefined): any[] | null {
   const payload = parseToolPayload(raw)
   if (!payload) {
     return null
@@ -125,7 +143,7 @@ export function toChatCompletionMessages(raw: string | null | undefined, assista
   const messages: any[] = [
     {
       role: 'assistant',
-      content: assistantContent,
+      content: payload.text ?? '',
       tool_calls: payload.calls.map((call) => ({
         id: call.id,
         type: 'function' as const,
@@ -152,12 +170,18 @@ export function toResponsesInputItems(raw: string | null | undefined): any[] | n
   if (!payload) {
     return null
   }
-  const items: any[] = payload.calls.map((call) => ({
-    type: 'function_call' as const,
-    call_id: call.id,
-    name: call.name,
-    arguments: typeof call.arguments === 'string' ? call.arguments : JSON.stringify(call.arguments ?? {}),
-  }))
+  const items: any[] = []
+  if (payload.text) {
+    items.push({ role: 'assistant' as const, content: [{ type: 'output_text' as const, text: payload.text }] })
+  }
+  for (const call of payload.calls) {
+    items.push({
+      type: 'function_call' as const,
+      call_id: call.id,
+      name: call.name,
+      arguments: typeof call.arguments === 'string' ? call.arguments : JSON.stringify(call.arguments ?? {}),
+    })
+  }
   for (const output of payload.outputs) {
     items.push({
       type: 'function_call_output' as const,
@@ -174,15 +198,23 @@ export function toAnthropicMessages(raw: string | null | undefined): any[] | nul
   if (!payload) {
     return null
   }
+  // text ブロックは tool_use より前に置く必要がある（モデルが返した順序と同じ）
+  const assistantContent: any[] = []
+  if (payload.text) {
+    assistantContent.push({ type: 'text', text: payload.text })
+  }
+  for (const call of payload.calls) {
+    assistantContent.push({
+      type: 'tool_use',
+      id: call.id,
+      name: call.name,
+      input: parseToolInput(call.arguments),
+    })
+  }
   return [
     {
       role: 'assistant',
-      content: payload.calls.map((call) => ({
-        type: 'tool_use',
-        id: call.id,
-        name: call.name,
-        input: parseToolInput(call.arguments),
-      })),
+      content: assistantContent,
     },
     {
       role: 'user',

@@ -1,6 +1,6 @@
 import SYSTEM_INSTRUCTIONS from '../../instructions.md?raw'
 
-import { buildToolPayload, chatCompletionTools, runAppToolCalls, toChatCompletionMessages } from './toolCalls'
+import { buildToolPayload, buildToolTurnContent, chatCompletionTools, runAppToolCalls, toChatCompletionMessages } from './toolCalls'
 import type { AppToolCall } from './toolCalls'
 import { EmptyReplyError } from './types'
 import type { ChatProviderContext, ChatProviderResult } from './types'
@@ -69,8 +69,10 @@ export async function runChatCompletionsChat(ctx: ChatProviderContext): Promise<
     }
 
     // ツールの実行結果をAPIに渡し、最終的な返答を生成させる
-    const functionLog = 'ツール実行: ' + logs.join('\n')
-    const toolPayload = buildToolPayload(appCalls, outputs)
+    // tool_calls と content が同時に返ることがあるので、その content も残して表示する
+    const preface = stripHtmlComments(message?.content || '')
+    const functionLog = buildToolTurnContent(preface, logs)
+    const toolPayload = buildToolPayload(appCalls, outputs, preface)
     await db
       .prepare('INSERT INTO messages (thread_id, role, content, response_id, model, raw_response, tool_payload) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .bind(threadId, 'assistant', functionLog, completion.id || null, completion.model ?? model, JSON.stringify(completion), toolPayload)
@@ -85,7 +87,8 @@ export async function runChatCompletionsChat(ctx: ChatProviderContext): Promise<
 
     conversation.push({
       role: 'assistant',
-      content: message?.content ?? '',
+      // 次ターンに履歴を再構築したときと同じ内容にそろえる
+      content: preface,
       tool_calls: toolCalls.map((tc: any) => ({
         id: tc.id,
         type: 'function' as const,

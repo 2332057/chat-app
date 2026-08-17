@@ -1,6 +1,6 @@
 import SYSTEM_INSTRUCTIONS from '../../instructions.md?raw'
 
-import { buildToolPayload, runAppToolCalls, toAnthropicMessages } from './toolCalls'
+import { buildToolPayload, buildToolTurnContent, runAppToolCalls, toAnthropicMessages } from './toolCalls'
 import type { AppToolCall } from './toolCalls'
 import { EmptyReplyError } from './types'
 import type { ChatProviderContext, ChatProviderResult } from './types'
@@ -212,8 +212,10 @@ export async function runClaudeOAuthChat(ctx: ChatProviderContext): Promise<Chat
     logTiming('app_tool_calls', { ms: elapsed(toolStart), round, calls: appCalls.length, notes: notes.length })
     result.notes.push(...notes)
 
-    const functionLog = 'ツール実行: ' + logs.join('\n')
-    const toolPayload = buildToolPayload(appCalls, outputs)
+    // tool_use と同じレスポンスに text ブロックが並ぶことがあるので、それも残して表示する
+    const preface = stripHtmlComments(extractReply(response))
+    const functionLog = buildToolTurnContent(preface, logs)
+    const toolPayload = buildToolPayload(appCalls, outputs, preface)
     const toolAuditStart = performance.now()
     await db
       .prepare('INSERT INTO messages (thread_id, role, content, response_id, model, raw_response, tool_payload) VALUES (?, ?, ?, ?, ?, ?, ?)')
