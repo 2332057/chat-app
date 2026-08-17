@@ -19,7 +19,6 @@ export type ChatClientConfig = {
     oauthToken?: string
     baseURL?: string
     model?: string
-    maxTokens?: number
     maxTurns?: number
   }
 }
@@ -34,7 +33,6 @@ export function resolveChatClientConfig(env: {
   CLAUDE_CODE_OAUTH_TOKEN?: string
   ANTHROPIC_BASE_URL?: string
   ANTHROPIC_MODEL?: string
-  ANTHROPIC_MAX_TOKENS?: string
   CLAUDE_MAX_TURNS?: string
 }): ChatClientConfig {
   return {
@@ -47,7 +45,6 @@ export function resolveChatClientConfig(env: {
       oauthToken: env.ANTHROPIC_OAUTH_TOKEN ?? env.CLAUDE_CODE_OAUTH_TOKEN,
       baseURL: env.ANTHROPIC_BASE_URL,
       model: env.ANTHROPIC_MODEL ?? ANTHROPIC_MODEL,
-      maxTokens: env.ANTHROPIC_MAX_TOKENS ? Number(env.ANTHROPIC_MAX_TOKENS) : undefined,
       maxTurns: env.CLAUDE_MAX_TURNS ? Number(env.CLAUDE_MAX_TURNS) : undefined,
     },
   }

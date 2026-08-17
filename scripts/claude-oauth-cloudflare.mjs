@@ -8,8 +8,10 @@ import path from 'node:path'
 import tls from 'node:tls'
 import { pathToFileURL } from 'node:url'
 
-const DEFAULT_MAX_TOKENS = '4096'
 const DEFAULT_MAX_TURNS = '3'
+// src/server/chat/claudeOAuthShape.ts の REASONING_EFFORT と一致させること。
+// ずれるとテストの形状比較が落ちる。
+const REASONING_EFFORT = 'high'
 const DEFAULT_MODEL = 'claude-haiku-4-5'
 const DEV_VARS_TOKEN_KEY = 'ANTHROPIC_OAUTH_TOKEN'
 const APP_PROBE_PROMPT =
@@ -33,7 +35,6 @@ async function main() {
   }
 
   const claudeVersion = getClaudeVersion(claudePath)
-  const maxTokens = getArg('max-tokens', DEFAULT_MAX_TOKENS)
   const maxTurns = getArg('max-turns', DEFAULT_MAX_TURNS)
 
   log(`Claude Code: ${claudeVersion}`)
@@ -60,7 +61,7 @@ async function main() {
   }
 
   if (!args['skip-app-probe']) {
-    await localAppShapeProbe(token, captured.headers, model, Number(maxTokens), captured.bodyText)
+    await localAppShapeProbe(token, captured.headers, model, captured.bodyText)
     log('Local app-shaped OAuth probe passed.')
   }
 
@@ -70,7 +71,7 @@ async function main() {
     log('Local D1 migrations checked.')
     await uploadCapturedTemplate(captured.headers, captured.bodyText, '--local')
     log('Seeded the captured request template into local D1.')
-    const devVarsPath = writeLocalSetupDevVars({ token, model, maxTokens, maxTurns })
+    const devVarsPath = writeLocalSetupDevVars({ token, model, maxTurns })
     log(`Wrote Claude OAuth vars to ${devVarsPath}. Restart the dev server to pick them up.`)
   } else if (args['write-dev-vars']) {
     const devVarsPath = writeDevVarsToken(token)
@@ -91,7 +92,7 @@ async function main() {
 
   const deployOutput = args['skip-deploy']
     ? ''
-    : await deployWorker({ model, maxTokens, maxTurns })
+    : await deployWorker({ model, maxTurns })
 
   await runWrangler(withWorkerEnv(['secret', 'put', 'ANTHROPIC_OAUTH_TOKEN']), {
     input: `${token}\n`,
@@ -310,12 +311,11 @@ function writeDevVarsToken(token, target = getArg('write-dev-vars', '.dev.vars')
 // Local dev has no `wrangler deploy --var` step, so the vars deployWorker() passes
 // have to be mirrored into .dev.vars or the Worker falls back to the default
 // request shape, which Anthropic does not accept for every model.
-function writeLocalSetupDevVars({ token, model, maxTokens, maxTurns }) {
+function writeLocalSetupDevVars({ token, model, maxTurns }) {
   const entries = {
     CHAT_API_PROVIDER: 'claude-oauth',
     [DEV_VARS_TOKEN_KEY]: token,
     ANTHROPIC_MODEL: model,
-    ANTHROPIC_MAX_TOKENS: maxTokens,
     CLAUDE_MAX_TURNS: maxTurns,
   }
   return writeDevVars(entries, getArg('local-setup', '.dev.vars'))
@@ -780,11 +780,11 @@ function exactReplayHeaders(headers) {
   return result
 }
 
-async function localAppShapeProbe(token, capturedHeaders, model, maxTokens, capturedBodyText) {
+async function localAppShapeProbe(token, capturedHeaders, model, capturedBodyText) {
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: buildOAuthHeaders(token, capturedHeaders),
-    body: JSON.stringify(buildAppBodyFromCapturedEnvelope(capturedBodyText, model, maxTokens, APP_PROBE_PROMPT)),
+    body: JSON.stringify(buildAppBodyFromCapturedEnvelope(capturedBodyText, model, APP_PROBE_PROMPT)),
   })
   const payload = await assertAnthropicOk(response, 'Local app-shaped OAuth probe')
   const content = Array.isArray(payload.content) ? payload.content : []
@@ -834,16 +834,14 @@ function shouldForwardCapturedHeader(name, value) {
   )
 }
 
-function buildAppBodyFromCapturedEnvelope(capturedBodyText, model, maxTokens, prompt) {
+function buildAppBodyFromCapturedEnvelope(capturedBodyText, model, prompt) {
   const body = parseJson(capturedBodyText)
   if (!body) {
     fail('Cannot build an app-shaped request without a captured Claude request body.')
   }
   body.model = model
-  body.max_tokens = maxTokens
   body.stream = false
-  delete body.thinking
-  delete body.output_config
+  body.output_config = { ...(typeof body.output_config === 'object' && body.output_config ? body.output_config : {}), effort: REASONING_EFFORT }
   delete body.fallbacks
   delete body.context_management
   appendTopLevelSystem(body, readAppInstructions())
@@ -1065,7 +1063,7 @@ function redact(text, values = []) {
   return result
 }
 
-async function deployWorker({ model, maxTokens, maxTurns }) {
+async function deployWorker({ model, maxTurns }) {
   // The Vite plugin flattens wrangler.jsonc to one environment at build time, so the
   // environment has to be picked here rather than with --env on the deploy alone.
   await runProcess('npm', ['run', 'build'], { env: workerEnv() ? { CLOUDFLARE_ENV: workerEnv() } : {} })
@@ -1076,8 +1074,6 @@ async function deployWorker({ model, maxTokens, maxTurns }) {
     'CHAT_API_PROVIDER:claude-oauth',
     '--var',
     `ANTHROPIC_MODEL:${model}`,
-    '--var',
-    `ANTHROPIC_MAX_TOKENS:${maxTokens}`,
     '--var',
     `CLAUDE_MAX_TURNS:${maxTurns}`,
   ]

@@ -21,7 +21,6 @@ type Bindings = {
   CLAUDE_CODE_OAUTH_TOKEN?: string
   ANTHROPIC_BASE_URL?: string
   ANTHROPIC_MODEL?: string
-  ANTHROPIC_MAX_TOKENS?: string
   CLAUDE_MAX_TURNS?: string
   GOOGLE_CLIENT_ID: string
   GOOGLE_CLIENT_SECRET: string
@@ -189,7 +188,7 @@ app.post('/api/chat', async (c) => {
       threadId,
       content,
       model: provider === 'claude-oauth' ? (clientConfig.anthropic.model ?? clientConfig.model) : clientConfig.model,
-      maxTokens: provider === 'claude-oauth' ? (clientConfig.anthropic.maxTokens ?? clientConfig.maxTokens) : clientConfig.maxTokens,
+      maxTokens: clientConfig.maxTokens,
       reasoningEffort: clientConfig.reasoningEffort,
       previousResponseId,
       anthropic: clientConfig.anthropic,

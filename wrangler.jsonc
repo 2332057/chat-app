@@ -32,7 +32,6 @@
       "vars": {
         "CHAT_API_PROVIDER": "claude-oauth",
         "ANTHROPIC_MODEL": "claude-opus-5",
-        "ANTHROPIC_MAX_TOKENS": "4096",
         "CLAUDE_MAX_TURNS": "3"
       },
       "d1_databases": [
@@ -60,7 +59,6 @@
         "CHAT_API_PROVIDER": "responses",
         "OPENAI_BASE_URL": "https://gateway.ai.cloudflare.com/v1/72660021a0c12e4a2650f04da672b9a1/chat/openai",
         "OPENAI_MODEL": "gpt-5.6",
-        "OPENAI_MAX_TOKENS": "30000",
         "OPENAI_REASONING_EFFORT": "high"
       },
       "d1_databases": [

@@ -11,7 +11,6 @@ import { stripHtmlComments } from './sanitize'
 
 const CLAUDE_OAUTH_RESPONSE_PREFIX = 'claude-oauth:'
 const DEFAULT_ANTHROPIC_BASE_URL = 'https://api.anthropic.com'
-const DEFAULT_MAX_TOKENS = 4096
 const DEFAULT_MAX_TOOL_ROUNDS = 3
 
 type AnthropicContentBlock = Record<string, unknown> & {
@@ -124,11 +123,9 @@ function extractReply(response: AnthropicMessageResponse): string {
 async function createAnthropicMessage(ctx: ChatProviderContext, messages: AnthropicMessage[], allowTools: boolean): Promise<AnthropicMessageResponse> {
   const baseURL = ctx.anthropic?.baseURL || DEFAULT_ANTHROPIC_BASE_URL
   const template = await loadClaudeOAuthTemplate(ctx)
-  const maxTokens = ctx.maxTokens ?? DEFAULT_MAX_TOKENS
   const body = buildCapturedOAuthBody({
     templateBody: template.body,
     model: ctx.model,
-    maxTokens,
     messages,
     allowTools,
     systemInstructions: SYSTEM_INSTRUCTIONS,

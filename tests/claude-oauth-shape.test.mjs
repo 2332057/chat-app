@@ -26,15 +26,13 @@ test('script and Worker shape builders produce the same captured-envelope app bo
   const captured = capturedBodyFixture()
   const prompt = 'Explain binary search in one sentence.'
   const model = 'claude-fable-5'
-  const maxTokens = 4096
   const systemInstructions = await readFile(path.join(repoRoot, 'src', 'instructions.md'), 'utf8')
   const toolDefinitions = JSON.parse(await readFile(path.join(repoRoot, 'src', 'tools.json'), 'utf8'))
 
-  const scriptBody = buildAppBodyFromCapturedEnvelope(JSON.stringify(captured), model, maxTokens, prompt)
+  const scriptBody = buildAppBodyFromCapturedEnvelope(JSON.stringify(captured), model, prompt)
   const workerBody = shape.buildCapturedOAuthBody({
     templateBody: captured,
     model,
-    maxTokens,
     messages: [{ role: 'user', content: prompt }],
     allowTools: true,
     systemInstructions,
@@ -45,8 +43,10 @@ test('script and Worker shape builders produce the same captured-envelope app bo
   assert.equal(scriptBody.system.at(-2).text, captured.system.at(-1).text)
   assert.equal(scriptBody.system.at(-1).text, systemInstructions)
   assert.equal(scriptBody.stream, false)
-  assert.equal('thinking' in scriptBody, false)
-  assert.equal('output_config' in scriptBody, false)
+  // 推論は捕捉した thinking 設定を活かし、effort だけ OpenAI 側と揃える。
+  assert.deepEqual(scriptBody.thinking, captured.thinking)
+  assert.equal(scriptBody.output_config.effort, 'high')
+  assert.equal(scriptBody.max_tokens, captured.max_tokens)
   assert.equal('fallbacks' in scriptBody, false)
   assert.equal('context_management' in scriptBody, false)
   assert.equal(scriptBody.system.at(-1).text, systemInstructions)

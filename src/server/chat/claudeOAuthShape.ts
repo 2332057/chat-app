@@ -15,9 +15,11 @@ export type ClaudeOAuthTemplate = {
   body: Record<string, unknown>
 }
 
+// OPENAI_REASONING_EFFORT と揃える。片方だけ変えると条件が揃わなくなるので定数で持つ。
+export const REASONING_EFFORT = 'high'
+
 type BodyOptions = {
   model: string
-  maxTokens: number
   messages: AnthropicMessage[]
   allowTools: boolean
   systemInstructions: string
@@ -31,7 +33,6 @@ type CapturedBodyOptions = BodyOptions & {
 export function buildCapturedOAuthBody({
   templateBody,
   model,
-  maxTokens,
   messages,
   allowTools,
   systemInstructions,
@@ -39,10 +40,11 @@ export function buildCapturedOAuthBody({
 }: CapturedBodyOptions): Record<string, unknown> {
   const body = deepClone(templateBody)
   body.model = model
-  body.max_tokens = maxTokens
   body.stream = false
-  delete body.thinking
-  delete body.output_config
+  // thinking と output_config は捕捉したものを使う。OpenAI 側の reasoning effort と
+  // 揃えるため effort だけ上書きする。max_tokens も捕捉値のままにして、
+  // 出力上限を環境変数で二重管理しない。
+  body.output_config = { ...(typeof body.output_config === 'object' && body.output_config ? body.output_config : {}), effort: REASONING_EFFORT }
   delete body.fallbacks
   delete body.context_management
   appendTopLevelSystem(body, systemInstructions)
