@@ -2,7 +2,6 @@
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
-  min-height: calc(100% - 114px);
 }
 
 /* message */
@@ -30,6 +29,7 @@
 
 .message-reasoning {
   margin: 16px 0;
+  pointer-events: none;
 }
 .message-reasoning > summary {
   cursor: pointer;

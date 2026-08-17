@@ -13,12 +13,17 @@
 .main {
   flex: 1 1 auto;
   min-height: 0;
+  /* ボックス群と入力欄を縦に積む */
+  display: flex;
+  flex-direction: column;
 }
 .split {
   display: flex;
   gap: 0.5rem;
   padding: 0.5rem;
-  height: 100%;
+  /* 入力欄の高さを引いた残りを埋める。min-height: 0 がないと中身の分だけ伸びる */
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .note,
 .chat {
@@ -28,4 +33,10 @@
   border-radius: 0.5rem;
   overflow-y: auto;
   flex: 1 1 300px;
+}
+
+/* チャット・ノート横断の入力欄。両ボックスの下に置く */
+.composer {
+  flex: 0 0 auto;
+  padding: 0 0.5rem 0.5rem;
 }

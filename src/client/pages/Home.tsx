@@ -316,8 +316,11 @@ export default function Home() {
           <div className={styles.note}>{notes.length > 0 && <Note versions={notes} />}</div>
           <div ref={messagesRef} className={styles.chat}>
             <ChatThread {...activeThreadData} />
-            <ChatForm value={draft} onChange={setDraft} onSend={() => void send()} busy={busy} textareaRef={textareaRef} />
           </div>
+        </div>
+        {/* チャット・ノートを横断して画面下部に置く入力欄 */}
+        <div className={styles.composer}>
+          <ChatForm value={draft} onChange={setDraft} onSend={() => void send()} busy={busy} textareaRef={textareaRef} />
         </div>
       </main>
     </>
