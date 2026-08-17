@@ -53,7 +53,7 @@ app.get('/api/me', (c) => c.json({ user: c.get('user') }))
 
 app.get('/api/threads', async (c) => {
   try {
-    const { results } = await c.env.DB.prepare('SELECT id, title FROM threads WHERE user_id = ? ORDER BY updated_at DESC')
+    const { results } = await c.env.DB.prepare('SELECT id, title FROM threads WHERE user_id = ? AND deleted_at IS NULL ORDER BY updated_at DESC')
       .bind(c.get('user').id)
       .all()
     return c.json({ threads: results })
@@ -85,7 +85,7 @@ app.get('/api/threads/:id', async (c) => {
 
     const [threadResult, messagesResult, notesResult] = await c.env.DB.batch([
       // user_id で必ず絞る。ここを thread_id だけにすると他人のスレッドを ID 推測で読める。
-      c.env.DB.prepare('SELECT * FROM threads WHERE id = ? AND user_id = ?').bind(threadId, c.get('user').id),
+      c.env.DB.prepare('SELECT * FROM threads WHERE id = ? AND user_id = ? AND deleted_at IS NULL').bind(threadId, c.get('user').id),
       c.env.DB.prepare('SELECT * FROM messages WHERE thread_id = ? ORDER BY created_at ASC, id ASC').bind(threadId),
       c.env.DB.prepare('SELECT * FROM notes WHERE thread_id = ? ORDER BY created_at ASC, id ASC').bind(threadId),
     ])
@@ -116,7 +116,7 @@ app.patch('/api/threads/:id', async (c) => {
       return c.json({ error: 'title is required.' }, 400)
     }
 
-    const { results } = await c.env.DB.prepare('UPDATE threads SET title = ? WHERE id = ? AND user_id = ? RETURNING *')
+    const { results } = await c.env.DB.prepare('UPDATE threads SET title = ? WHERE id = ? AND user_id = ? AND deleted_at IS NULL RETURNING *')
       .bind(title, threadId, c.get('user').id)
       .all()
 
@@ -149,7 +149,7 @@ app.post('/api/chat', async (c) => {
     return c.json({ error: 'content is required.' }, 400)
   }
 
-  const thread = await c.env.DB.prepare('SELECT id, last_response_id FROM threads WHERE id = ? AND user_id = ?')
+  const thread = await c.env.DB.prepare('SELECT id, last_response_id FROM threads WHERE id = ? AND user_id = ? AND deleted_at IS NULL')
     .bind(threadId, c.get('user').id)
     .first<ChatThreadRecord>()
   if (!thread) {

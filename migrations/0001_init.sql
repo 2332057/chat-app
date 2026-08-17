@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS threads (
   memory TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  -- 論理削除。NULL でなければ削除済みで、一覧にも詳細にも出さない。
+  deleted_at DATETIME,
   FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
