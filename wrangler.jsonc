@@ -27,6 +27,8 @@
   "env": {
     "a": {
       "name": "chat-app-a",
+      // バージョンごとのプレビュー URL は本番と同じ D1 を参照するため塞ぐ。
+      "preview_urls": false,
       "vars": {
         "CHAT_API_PROVIDER": "claude-oauth",
         "ANTHROPIC_MODEL": "claude-opus-5",
@@ -53,6 +55,7 @@
     },
     "b": {
       "name": "chat-app-b",
+      "preview_urls": false,
       "vars": {
         "CHAT_API_PROVIDER": "responses",
         "OPENAI_BASE_URL": "https://gateway.ai.cloudflare.com/v1/72660021a0c12e4a2650f04da672b9a1/chat/openai",
