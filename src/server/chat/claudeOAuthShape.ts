@@ -28,26 +28,6 @@ type CapturedBodyOptions = BodyOptions & {
   templateBody: Record<string, unknown>
 }
 
-export function buildDefaultOAuthBody({ model, maxTokens, messages, allowTools, systemInstructions, tools }: BodyOptions): Record<string, unknown> {
-  const body: Record<string, unknown> = {
-    model,
-    max_tokens: maxTokens,
-    system: [
-      {
-        type: 'text',
-        text: systemInstructions,
-      },
-    ],
-    messages,
-  }
-
-  if (allowTools) {
-    body.tools = toAnthropicTools(tools)
-    body.tool_choice = { type: 'auto' }
-  }
-  return body
-}
-
 export function buildCapturedOAuthBody({
   templateBody,
   model,

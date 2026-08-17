@@ -20,14 +20,7 @@ export type ChatClientConfig = {
     baseURL?: string
     model?: string
     maxTokens?: number
-    version?: string
-    beta?: string
-    userAgent?: string
-    dangerousDirectBrowserAccess?: string
-    xApp?: string
-    claudeCodeVersion?: string
     maxTurns?: number
-    templateSource?: string
   }
 }
 
@@ -42,14 +35,7 @@ export function resolveChatClientConfig(env: {
   ANTHROPIC_BASE_URL?: string
   ANTHROPIC_MODEL?: string
   ANTHROPIC_MAX_TOKENS?: string
-  ANTHROPIC_VERSION?: string
-  ANTHROPIC_BETA?: string
-  CLAUDE_CODE_USER_AGENT?: string
-  ANTHROPIC_DANGEROUS_DIRECT_BROWSER_ACCESS?: string
-  CLAUDE_CODE_X_APP?: string
-  CLAUDE_CODE_VERSION?: string
   CLAUDE_MAX_TURNS?: string
-  CLAUDE_OAUTH_TEMPLATE_SOURCE?: string
 }): ChatClientConfig {
   return {
     apiKey: env.OPENAI_API_KEY,
@@ -62,14 +48,7 @@ export function resolveChatClientConfig(env: {
       baseURL: env.ANTHROPIC_BASE_URL,
       model: env.ANTHROPIC_MODEL ?? ANTHROPIC_MODEL,
       maxTokens: env.ANTHROPIC_MAX_TOKENS ? Number(env.ANTHROPIC_MAX_TOKENS) : undefined,
-      version: env.ANTHROPIC_VERSION,
-      beta: env.ANTHROPIC_BETA,
-      userAgent: env.CLAUDE_CODE_USER_AGENT,
-      dangerousDirectBrowserAccess: env.ANTHROPIC_DANGEROUS_DIRECT_BROWSER_ACCESS,
-      xApp: env.CLAUDE_CODE_X_APP,
-      claudeCodeVersion: env.CLAUDE_CODE_VERSION,
       maxTurns: env.CLAUDE_MAX_TURNS ? Number(env.CLAUDE_MAX_TURNS) : undefined,
-      templateSource: env.CLAUDE_OAUTH_TEMPLATE_SOURCE,
     },
   }
 }

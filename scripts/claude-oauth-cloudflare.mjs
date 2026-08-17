@@ -70,14 +70,7 @@ async function main() {
     log('Local D1 migrations checked.')
     await uploadCapturedTemplate(captured.headers, captured.bodyText, '--local')
     log('Seeded the captured request template into local D1.')
-    const devVarsPath = writeLocalSetupDevVars({
-      token,
-      model,
-      maxTokens,
-      maxTurns,
-      claudeVersion,
-      capturedHeaders: captured.headers,
-    })
+    const devVarsPath = writeLocalSetupDevVars({ token, model, maxTokens, maxTurns })
     log(`Wrote Claude OAuth vars to ${devVarsPath}. Restart the dev server to pick them up.`)
   } else if (args['write-dev-vars']) {
     const devVarsPath = writeDevVarsToken(token)
@@ -98,13 +91,7 @@ async function main() {
 
   const deployOutput = args['skip-deploy']
     ? ''
-    : await deployWorker({
-        model,
-        maxTokens,
-        maxTurns,
-        claudeVersion,
-        capturedHeaders: captured.headers,
-      })
+    : await deployWorker({ model, maxTokens, maxTurns })
 
   await runWrangler(withWorkerEnv(['secret', 'put', 'ANTHROPIC_OAUTH_TOKEN']), {
     input: `${token}\n`,
@@ -323,19 +310,13 @@ function writeDevVarsToken(token, target = getArg('write-dev-vars', '.dev.vars')
 // Local dev has no `wrangler deploy --var` step, so the vars deployWorker() passes
 // have to be mirrored into .dev.vars or the Worker falls back to the default
 // request shape, which Anthropic does not accept for every model.
-function writeLocalSetupDevVars({ token, model, maxTokens, maxTurns, claudeVersion, capturedHeaders }) {
+function writeLocalSetupDevVars({ token, model, maxTokens, maxTurns }) {
   const entries = {
     CHAT_API_PROVIDER: 'claude-oauth',
     [DEV_VARS_TOKEN_KEY]: token,
     ANTHROPIC_MODEL: model,
     ANTHROPIC_MAX_TOKENS: maxTokens,
     CLAUDE_MAX_TURNS: maxTurns,
-    CLAUDE_CODE_VERSION: claudeVersion,
-    CLAUDE_CODE_USER_AGENT: capturedHeaders['user-agent'],
-    ANTHROPIC_BETA: capturedHeaders['anthropic-beta'],
-    ANTHROPIC_DANGEROUS_DIRECT_BROWSER_ACCESS: capturedHeaders['anthropic-dangerous-direct-browser-access'],
-    CLAUDE_CODE_X_APP: capturedHeaders['x-app'],
-    CLAUDE_OAUTH_TEMPLATE_SOURCE: 'd1',
   }
   return writeDevVars(entries, getArg('local-setup', '.dev.vars'))
 }
@@ -378,12 +359,11 @@ function writeDevVars(entries, target, { warnOnMismatch = false } = {}) {
 }
 
 function warnDevVarsMismatch(lines) {
-  if (readDevVarsValue(lines, 'CHAT_API_PROVIDER') !== 'claude-oauth') {
-    log('Warning: CHAT_API_PROVIDER is not claude-oauth in this file, so local dev will not use the Claude OAuth provider.')
+  if (readDevVarsValue(lines, 'CHAT_API_PROVIDER') === 'claude-oauth') {
+    log('Reminder: the request template has to be in local D1. Re-run with --local-setup if the Worker cannot find it.')
+    return
   }
-  if (readDevVarsValue(lines, 'CLAUDE_OAUTH_TEMPLATE_SOURCE') === 'd1') {
-    log('Warning: CLAUDE_OAUTH_TEMPLATE_SOURCE=d1 needs a seeded claude_oauth_template row in local D1. Re-run with --local-setup to seed it.')
-  }
+  log('Warning: CHAT_API_PROVIDER is not claude-oauth in this file, so local dev will not use the Claude OAuth provider.')
 }
 
 function readDevVarsValue(lines, key) {
@@ -1085,10 +1065,11 @@ function redact(text, values = []) {
   return result
 }
 
-async function deployWorker({ model, maxTokens, maxTurns, claudeVersion, capturedHeaders }) {
+async function deployWorker({ model, maxTokens, maxTurns }) {
   // The Vite plugin flattens wrangler.jsonc to one environment at build time, so the
   // environment has to be picked here rather than with --env on the deploy alone.
   await runProcess('npm', ['run', 'build'], { env: workerEnv() ? { CLOUDFLARE_ENV: workerEnv() } : {} })
+  // Claude Code を名乗るヘッダーは D1 のテンプレートから読むので、ここでは渡さない。
   const argv = [
     'deploy',
     '--var',
@@ -1098,23 +1079,8 @@ async function deployWorker({ model, maxTokens, maxTurns, claudeVersion, capture
     '--var',
     `ANTHROPIC_MAX_TOKENS:${maxTokens}`,
     '--var',
-    `CLAUDE_CODE_VERSION:${claudeVersion}`,
-    '--var',
-    `CLAUDE_CODE_USER_AGENT:${capturedHeaders['user-agent']}`,
-    '--var',
     `CLAUDE_MAX_TURNS:${maxTurns}`,
-    '--var',
-    'CLAUDE_OAUTH_TEMPLATE_SOURCE:d1',
   ]
-  if (capturedHeaders['anthropic-beta']) {
-    argv.push('--var', `ANTHROPIC_BETA:${capturedHeaders['anthropic-beta']}`)
-  }
-  if (capturedHeaders['anthropic-dangerous-direct-browser-access']) {
-    argv.push('--var', `ANTHROPIC_DANGEROUS_DIRECT_BROWSER_ACCESS:${capturedHeaders['anthropic-dangerous-direct-browser-access']}`)
-  }
-  if (capturedHeaders['x-app']) {
-    argv.push('--var', `CLAUDE_CODE_X_APP:${capturedHeaders['x-app']}`)
-  }
   const output = await runWrangler(withWorkerEnv(argv))
   log('Worker deployed with Claude OAuth vars.')
   return output

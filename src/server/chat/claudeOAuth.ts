@@ -5,16 +5,14 @@ import type { AppToolCall } from './toolCalls'
 import { EmptyReplyError } from './types'
 import type { ChatProviderContext, ChatProviderResult } from './types'
 import { tools } from '../../tools'
-import { buildCapturedOAuthBody, buildDefaultOAuthBody } from './claudeOAuthShape'
+import { buildCapturedOAuthBody } from './claudeOAuthShape'
 import type { AnthropicMessage, ClaudeOAuthTemplate } from './claudeOAuthShape'
 import { stripHtmlComments } from './sanitize'
 
 const CLAUDE_OAUTH_RESPONSE_PREFIX = 'claude-oauth:'
 const DEFAULT_ANTHROPIC_BASE_URL = 'https://api.anthropic.com'
-const DEFAULT_ANTHROPIC_VERSION = '2023-06-01'
 const DEFAULT_MAX_TOKENS = 4096
 const DEFAULT_MAX_TOOL_ROUNDS = 3
-const DEFAULT_CLAUDE_CODE_VERSION = '2.1.75'
 
 type AnthropicContentBlock = Record<string, unknown> & {
   type?: string
@@ -59,41 +57,25 @@ function joinUrl(base: string, path: string): string {
   return `${base.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`
 }
 
-function buildOAuthHeaders(ctx: ChatProviderContext): Record<string, string> {
+/**
+ * 捕捉したヘッダー (user-agent, anthropic-beta, x-app, anthropic-version など) が
+ * Claude Code としての身元になる。環境変数で組み立て直す必要はない。
+ * 認証だけは捕捉時の値ではなく、現在のトークンを使う。
+ */
+function buildOAuthHeaders(ctx: ChatProviderContext, template: ClaudeOAuthTemplate): Record<string, string> {
   const token = ctx.anthropic?.oauthToken
   if (!token) {
     throw new Error('ANTHROPIC_OAUTH_TOKEN or CLAUDE_CODE_OAUTH_TOKEN is required when CHAT_API_PROVIDER=claude-oauth.')
   }
 
-  const claudeVersion = ctx.anthropic?.claudeCodeVersion || DEFAULT_CLAUDE_CODE_VERSION
-  const headers: Record<string, string> = {
-    Accept: 'application/json',
-    Authorization: `Bearer ${token}`,
-    'Content-Type': 'application/json',
-    'anthropic-version': ctx.anthropic?.version || DEFAULT_ANTHROPIC_VERSION,
-    'User-Agent': ctx.anthropic?.userAgent || `claude-code/${claudeVersion}`,
-  }
-  if (ctx.anthropic?.beta) {
-    headers['anthropic-beta'] = ctx.anthropic.beta
-  }
-  if (ctx.anthropic?.dangerousDirectBrowserAccess) {
-    headers['anthropic-dangerous-direct-browser-access'] = ctx.anthropic.dangerousDirectBrowserAccess
-  }
-  if (ctx.anthropic?.xApp) {
-    headers['x-app'] = ctx.anthropic.xApp
-  }
-  return headers
-}
-
-function buildCapturedOAuthHeaders(ctx: ChatProviderContext, template: ClaudeOAuthTemplate): Record<string, string> {
-  const headers = buildOAuthHeaders(ctx)
+  const headers: Record<string, string> = { Accept: 'application/json' }
   for (const [name, value] of Object.entries(template.headers)) {
     if (!value || shouldSkipCapturedHeader(name)) {
       continue
     }
     headers[name] = value
   }
-  headers.Authorization = `Bearer ${ctx.anthropic?.oauthToken}`
+  headers.Authorization = `Bearer ${token}`
   headers['Content-Type'] = 'application/json'
   return headers
 }
@@ -143,30 +125,21 @@ async function createAnthropicMessage(ctx: ChatProviderContext, messages: Anthro
   const baseURL = ctx.anthropic?.baseURL || DEFAULT_ANTHROPIC_BASE_URL
   const template = await loadClaudeOAuthTemplate(ctx)
   const maxTokens = ctx.maxTokens ?? DEFAULT_MAX_TOKENS
-  const body = template
-    ? buildCapturedOAuthBody({
-        templateBody: template.body,
-        model: ctx.model,
-        maxTokens,
-        messages,
-        allowTools,
-        systemInstructions: SYSTEM_INSTRUCTIONS,
-        tools,
-      })
-    : buildDefaultOAuthBody({
-        model: ctx.model,
-        maxTokens,
-        messages,
-        allowTools,
-        systemInstructions: SYSTEM_INSTRUCTIONS,
-        tools,
-      })
+  const body = buildCapturedOAuthBody({
+    templateBody: template.body,
+    model: ctx.model,
+    maxTokens,
+    messages,
+    allowTools,
+    systemInstructions: SYSTEM_INSTRUCTIONS,
+    tools,
+  })
 
   const requestBody = JSON.stringify(body)
   const fetchStart = performance.now()
   const response = await fetch(joinUrl(baseURL, '/v1/messages'), {
     method: 'POST',
-    headers: template ? buildCapturedOAuthHeaders(ctx, template) : buildOAuthHeaders(ctx),
+    headers: buildOAuthHeaders(ctx, template),
     body: requestBody,
   })
 
@@ -186,7 +159,6 @@ async function createAnthropicMessage(ctx: ChatProviderContext, messages: Anthro
     status: response.status,
     model: ctx.model,
     allowTools,
-    template: template ? 'd1' : 'default',
     requestBytes: requestBody.length,
     responseBytes: responseText.length,
     inputTokens: payload.usage?.input_tokens,
@@ -197,10 +169,11 @@ async function createAnthropicMessage(ctx: ChatProviderContext, messages: Anthro
   return payload
 }
 
-async function loadClaudeOAuthTemplate(ctx: ChatProviderContext): Promise<ClaudeOAuthTemplate | null> {
-  if (ctx.anthropic?.templateSource !== 'd1') {
-    return null
-  }
+/**
+ * リクエストの雛形は必ず D1 から読む。手組みの形では Claude Code として通らず、
+ * モデルによっては Anthropic に弾かれるため、行が無ければ黙って劣化させずに落とす。
+ */
+async function loadClaudeOAuthTemplate(ctx: ChatProviderContext): Promise<ClaudeOAuthTemplate> {
   if (cachedTemplate) {
     logTiming('claude_oauth_template', { source: 'memory' })
     return cachedTemplate
@@ -208,7 +181,7 @@ async function loadClaudeOAuthTemplate(ctx: ChatProviderContext): Promise<Claude
   const startedAt = performance.now()
   const row = await ctx.db.prepare('SELECT headers, body FROM claude_oauth_template WHERE id = 1').first<ClaudeOAuthTemplateRow>()
   if (!row) {
-    throw new Error('CLAUDE_OAUTH_TEMPLATE_SOURCE=d1 is set, but claude_oauth_template id=1 was not found.')
+    throw new Error('claude_oauth_template id=1 was not found. Run scripts/claude-oauth-cloudflare.mjs to capture and store it.')
   }
   cachedTemplate = {
     headers: JSON.parse(row.headers) as Record<string, string>,

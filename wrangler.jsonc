@@ -31,8 +31,7 @@
         "CHAT_API_PROVIDER": "claude-oauth",
         "ANTHROPIC_MODEL": "claude-opus-5",
         "ANTHROPIC_MAX_TOKENS": "4096",
-        "CLAUDE_MAX_TURNS": "3",
-        "CLAUDE_OAUTH_TEMPLATE_SOURCE": "d1"
+        "CLAUDE_MAX_TURNS": "3"
       },
       "d1_databases": [
         {
