@@ -7,9 +7,11 @@ import type { ChatProviderContext, ChatProviderResult } from './types'
 import { stripHtmlComments } from './sanitize'
 
 // Responses API の履歴の渡し方をハードコードで切り替える。
-// - 'previous_response_id': サーバ側に状態を持たせ、直前の response_id だけ渡す（既定）
+// - 'previous_response_id': サーバ側に状態を持たせ、直前の response_id だけ渡す
 // - 'input_history': previous_response_id を使わず、DBの履歴から input を毎回組み立てて渡す
-const RESPONSES_HISTORY_MODE: 'previous_response_id' | 'input_history' = 'previous_response_id'
+// この組織は Zero Data Retention のため OpenAI 側に応答を保持できず、previous_response_id を
+// 送ると 400 (unsupported_parameter) になる。ZDR を解除しない限り input_history しか使えない。
+const RESPONSES_HISTORY_MODE: 'previous_response_id' | 'input_history' = 'input_history'
 
 const MAX_TOOL_ROUNDS = 3
 
