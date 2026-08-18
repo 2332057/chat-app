@@ -131,7 +131,10 @@ export async function runResponsesChat(ctx: ChatProviderContext): Promise<ChatPr
     const previousId = response.id
 
     if (useInputHistory) {
-      inputItems.push(...functionCalls, ...outputItems)
+      // 次ターンにDBから復元するときと同じ形で積み直す。レスポンスの生アイテムは fc_/rs_ の id を
+      // 持っており、その id を送ると対になる reasoning アイテムも要求されるが、ZDR では reasoning を
+      // 持ち回せないため 400 になる。
+      inputItems.push(...(toResponsesInputItems(toolPayload) ?? []))
       response = await (client as any).responses.create({
         model: model,
         instructions: SYSTEM_INSTRUCTIONS,
