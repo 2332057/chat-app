@@ -1,3 +1,152 @@
-.note > span {
-  margin: 0 0.5rem 0 0;
+.note {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* タイトルとツールバーを1行に。幅が足りないときはツールバーが折り返す */
+.header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid #e4e8ec;
+}
+
+.title {
+  margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: system-ui, sans-serif;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  line-height: 1.4;
+  color: #1f2328;
+  /* 長いタイトルでツールバーを押し出さないように省略する */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tools {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: system-ui, sans-serif;
+  font-size: 0.75rem;
+  color: #59636e;
+}
+
+/* バージョン選択。ネイティブ select の見た目を周囲に合わせる */
+.version {
+  padding: 0.2rem 0.4rem;
+  border: 1px solid #d1d9e0;
+  border-radius: 0.375rem;
+  background: #fff;
+  color: #1f2328;
+  font: inherit;
+  cursor: pointer;
+}
+
+.version:hover {
+  background: #f6f8fa;
+}
+
+/* 差分トグル。checkbox は視覚的に隠し、キーボード操作は生かす */
+.toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggleInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.track {
+  position: relative;
+  width: 1.75rem;
+  height: 1rem;
+  border-radius: 999px;
+  background: #d1d9e0;
+  transition: background 0.15s ease;
+}
+
+.thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.2);
+  transition: transform 0.15s ease;
+}
+
+.toggleInput:checked + .track {
+  background: #0969da;
+}
+
+.toggleInput:checked + .track .thumb {
+  transform: translateX(0.75rem);
+}
+
+.toggleInput:focus-visible + .track {
+  outline: 2px solid #0969da;
+  outline-offset: 2px;
+}
+
+/* 差分の凡例。トグルが on のときだけ出す */
+.legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  margin-top: -0.5rem;
+  font-family: system-ui, sans-serif;
+  font-size: 0.6875rem;
+  color: #59636e;
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+/* 印だけ色を付け、ラベルは本文と同じ淡い色のままにする */
+.legendItem::before {
+  content: '';
+  width: 3px;
+  height: 0.75rem;
+  border-radius: 1px;
+  background: var(--legend-mark);
+}
+
+.legendAdded {
+  --legend-mark: #2da44e;
+}
+
+.legendModified {
+  --legend-mark: #0969da;
+}
+
+/* 削除は本文と同じ ▶ マーカーで示す */
+.legendDeleted::before {
+  content: '▶';
+  width: auto;
+  height: auto;
+  background: none;
+  color: #cf222e;
+  font-size: 0.7em;
+  line-height: 1;
 }

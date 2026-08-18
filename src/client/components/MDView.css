@@ -1,6 +1,214 @@
-/* 差分ガター用の余白 */
+/* Markdown 本文の共通タイポグラフィ。
+   色・間隔はトークン化しておき、テーマ変更時はここだけ差し替える。 */
 .markdown-body {
+  --md-fg: #1f2328;
+  --md-fg-muted: #59636e;
+  --md-border: #d1d9e0;
+  --md-border-subtle: #e4e8ec;
+  --md-accent: #0969da;
+  --md-code-bg: #eff1f3;
+  --md-pre-bg: #0d1117;
+
+  color: var(--md-fg);
+  font-family: system-ui, -apple-system, 'Segoe UI', 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+  font-size: 0.9375rem;
+  line-height: 1.8;
+  word-break: break-word;
+  /* 差分ガター用の余白 */
   padding-left: 14px;
+}
+
+/* 先頭・末尾のブロックの余白は容器側に任せる */
+.markdown-body > *:first-child {
+  margin-top: 0;
+}
+.markdown-body > *:last-child {
+  margin-bottom: 0;
+}
+
+/* --- 見出し --- */
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  margin: 1.75em 0 0.6em;
+  font-weight: 600;
+  line-height: 1.4;
+  /* 見出し直前で改ページのように切れないようにする */
+  break-after: avoid;
+}
+
+.markdown-body h1 {
+  font-size: 1.5rem;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--md-border-subtle);
+}
+
+.markdown-body h2 {
+  font-size: 1.25rem;
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid var(--md-border-subtle);
+}
+
+.markdown-body h3 {
+  font-size: 1.0625rem;
+}
+
+.markdown-body h4 {
+  font-size: 1rem;
+}
+
+.markdown-body h5,
+.markdown-body h6 {
+  font-size: 0.9375rem;
+  color: var(--md-fg-muted);
+}
+
+/* --- 段落・リスト --- */
+
+.markdown-body p {
+  margin: 0 0 1em;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  margin: 0 0 1em;
+  padding-left: 1.6em;
+}
+
+.markdown-body li {
+  margin: 0.25em 0;
+}
+
+/* ネストしたリストは上下の余白を詰めて親項目とまとめて見せる */
+.markdown-body li > ul,
+.markdown-body li > ol {
+  margin: 0.25em 0 0.25em;
+}
+
+/* リスト項目内の段落(緩いリスト)が離れすぎないようにする */
+.markdown-body li > p {
+  margin: 0 0 0.4em;
+}
+
+.markdown-body ul {
+  list-style: disc;
+}
+
+.markdown-body ul ul {
+  list-style: circle;
+}
+
+/* GFM のタスクリスト */
+.markdown-body li:has(> input[type='checkbox']) {
+  list-style: none;
+  margin-left: -1.4em;
+}
+
+.markdown-body li > input[type='checkbox'] {
+  margin: 0 0.4em 0 0;
+  vertical-align: -0.1em;
+}
+
+/* --- 引用・区切り --- */
+
+.markdown-body blockquote {
+  margin: 0 0 1em;
+  padding: 0.1em 0 0.1em 1em;
+  border-left: 3px solid var(--md-border);
+  color: var(--md-fg-muted);
+}
+
+.markdown-body blockquote > *:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body hr {
+  height: 1px;
+  margin: 2em 0;
+  border: 0;
+  background: var(--md-border-subtle);
+}
+
+/* --- コード --- */
+
+.markdown-body code,
+.markdown-body pre {
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+}
+
+/* インラインコード(pre 直下の code は除く) */
+.markdown-body :not(pre) > code {
+  padding: 0.15em 0.4em;
+  border-radius: 0.25rem;
+  background: var(--md-code-bg);
+  font-size: 0.875em;
+}
+
+.markdown-body pre {
+  margin: 0 0 1em;
+  padding: 0.875rem 1rem;
+  border-radius: 0.5rem;
+  background: var(--md-pre-bg);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  /* 長い行はブロック内で横スクロールさせ、ページ全体を広げない */
+  overflow-x: auto;
+}
+
+.markdown-body pre code {
+  padding: 0;
+  background: none;
+  font-size: inherit;
+}
+
+/* --- 表 --- */
+
+.markdown-body table {
+  display: block;
+  margin: 0 0 1em;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  /* 幅の広い表は表自身をスクロールさせる */
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.markdown-body th,
+.markdown-body td {
+  padding: 0.4em 0.75em;
+  border: 1px solid var(--md-border);
+  text-align: left;
+}
+
+.markdown-body th {
+  background: var(--md-code-bg);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.markdown-body tbody tr:nth-child(even) td {
+  background: #f8f9fa;
+}
+
+/* --- その他 --- */
+
+.markdown-body a {
+  color: var(--md-accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.15em;
+}
+
+.markdown-body img {
+  max-width: 100%;
+  border-radius: 0.25rem;
+}
+
+.markdown-body strong {
+  font-weight: 600;
 }
 
 /* 追加(緑)・変更(青): ブロック左側のボーダーで示す */
@@ -17,6 +225,15 @@
 
 .markdown-body .diff-modified {
   border-color: #0969da;
+}
+
+/* 見出しは下線を持つが、diff の border-color が全辺に効いて下線まで
+   緑/青になるため、下線だけ元の色に戻す */
+.markdown-body h1.diff-added,
+.markdown-body h2.diff-added,
+.markdown-body h1.diff-modified,
+.markdown-body h2.diff-modified {
+  border-bottom: 1px solid var(--md-border-subtle);
 }
 
 /* 削除: 左側に赤い ▶ */
