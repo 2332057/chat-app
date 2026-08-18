@@ -28,6 +28,7 @@
 /* 推論(HTMLコメント)は既定で畳んでおく */
 
 .message-reasoning {
+  display: none;
   margin: 16px 0;
   pointer-events: none;
 }
