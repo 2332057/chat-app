@@ -22,6 +22,7 @@ type Bindings = {
   ANTHROPIC_BASE_URL?: string
   ANTHROPIC_MODEL?: string
   CLAUDE_MAX_TURNS?: string
+  ANTHROPIC_REASONING_EFFORT?: string
   GOOGLE_CLIENT_ID: string
   GOOGLE_CLIENT_SECRET: string
   ALLOWED_GOOGLE_DOMAIN: string

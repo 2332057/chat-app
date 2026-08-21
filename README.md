@@ -20,8 +20,11 @@ OPENAI_BASE_URL=https://your.gateway.here/compat
 OPENAI_MODEL=your-model-here
 CHAT_API_PROVIDER=responses / chat-completions
 OPENAI_MAX_TOKENS=30000
-OPENAI_REASONING_EFFORT=high
 ```
+
+`OPENAI_REASONING_EFFORT`（`none` / `low` / `medium` / `high` / `xhigh` / `max`）は任意。
+未設定なら `reasoning` を送らず OpenAI 側の既定（`medium`）になる。Claude 側の
+`ANTHROPIC_REASONING_EFFORT` も同じ方式で、未設定なら既定の `high`。
 
 ## デプロイ構成
 
@@ -132,6 +135,17 @@ OpenAI プロバイダのままになることがある。
 既定のモデルはレイテンシ重視で `claude-haiku-4-5`。変更するにはヘルパーに
 `--model` を渡すか、Worker 環境で `ANTHROPIC_MODEL` を設定する。
 
+推論の深さ（`output_config.effort`）は `--effort` または Worker 環境の
+`ANTHROPIC_REASONING_EFFORT` で変える。`low` / `medium` / `high` / `xhigh` / `max`。
+
+**未設定なら `output_config.effort` を送らない**（API 既定の `high` になる）。捕捉した
+Claude Code のリクエストには Claude Code 自身の effort が入っているので、環境変数が
+無いときはそれも消して送る。残すと捕捉時の Claude Code 設定に引きずられる。
+
+ヘルパーは範囲外の値でエラー終了するが、Worker は無効値を捨てて（= 送らない）
+リクエスト自体は通す。`xhigh` / `max` を使う場合は `max_tokens` に余裕が必要だが、
+これは捕捉テンプレートの値をそのまま使っている。
+
 Cloudflare を変更せずに認証とヘッダ捕捉だけ確認する場合:
 
 ```sh
@@ -150,7 +164,8 @@ node scripts/claude-oauth-cloudflare.mjs --local-setup
 これはローカル D1 にマイグレーションを適用し、捕捉した
 リクエストテンプレートをローカル D1 の `claude_oauth_template` に入れ、デプロイ時に
 `--var` で渡しているのと同じ変数（`CHAT_API_PROVIDER`、`ANTHROPIC_OAUTH_TOKEN`、
-`ANTHROPIC_MODEL`、`ANTHROPIC_BETA`、`CLAUDE_CODE_USER_AGENT`、`CLAUDE_CODE_X_APP`、
+`ANTHROPIC_MODEL`、`ANTHROPIC_REASONING_EFFORT`、`ANTHROPIC_BETA`、
+`CLAUDE_CODE_USER_AGENT`、`CLAUDE_CODE_X_APP`、
 `CLAUDE_OAUTH_TEMPLATE_SOURCE=d1` など）を `.dev.vars` に書き込む。既存の行は
 キー単位で上書きし、無関係な行は残す。書き込み後は dev サーバを再起動する。
 

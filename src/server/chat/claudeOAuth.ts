@@ -130,6 +130,7 @@ async function createAnthropicMessage(ctx: ChatProviderContext, messages: Anthro
     allowTools,
     systemInstructions: SYSTEM_INSTRUCTIONS,
     tools,
+    effort: ctx.anthropic?.reasoningEffort,
   })
 
   const requestBody = JSON.stringify(body)

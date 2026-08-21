@@ -20,6 +20,7 @@ export type ChatClientConfig = {
     baseURL?: string
     model?: string
     maxTurns?: number
+    reasoningEffort?: string
   }
 }
 
@@ -34,6 +35,7 @@ export function resolveChatClientConfig(env: {
   ANTHROPIC_BASE_URL?: string
   ANTHROPIC_MODEL?: string
   CLAUDE_MAX_TURNS?: string
+  ANTHROPIC_REASONING_EFFORT?: string
 }): ChatClientConfig {
   return {
     apiKey: env.OPENAI_API_KEY,
@@ -46,6 +48,7 @@ export function resolveChatClientConfig(env: {
       baseURL: env.ANTHROPIC_BASE_URL,
       model: env.ANTHROPIC_MODEL ?? ANTHROPIC_MODEL,
       maxTurns: env.CLAUDE_MAX_TURNS ? Number(env.CLAUDE_MAX_TURNS) : undefined,
+      reasoningEffort: env.ANTHROPIC_REASONING_EFFORT || undefined,
     },
   }
 }
