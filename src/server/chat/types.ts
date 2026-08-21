@@ -33,7 +33,6 @@ export type ChatProviderContext = {
     dangerousDirectBrowserAccess?: string
     xApp?: string
     claudeCodeVersion?: string
-    maxTurns?: number
     reasoningEffort?: string
     templateSource?: string
   }

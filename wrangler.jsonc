@@ -31,8 +31,7 @@
       "preview_urls": false,
       "vars": {
         "CHAT_API_PROVIDER": "claude-oauth",
-        "ANTHROPIC_MODEL": "claude-opus-5",
-        "CLAUDE_MAX_TURNS": "3"
+        "ANTHROPIC_MODEL": "claude-opus-5"
       },
       "d1_databases": [
         {

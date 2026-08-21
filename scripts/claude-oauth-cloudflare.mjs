@@ -8,7 +8,6 @@ import path from 'node:path'
 import tls from 'node:tls'
 import { pathToFileURL } from 'node:url'
 
-const DEFAULT_MAX_TURNS = '3'
 // src/server/chat/claudeOAuthShape.ts の同名定数と一致させること。
 // ずれるとテストの形状比較が落ちる。--effort 未指定なら effort は送らず API 既定に任せる。
 const REASONING_EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max']
@@ -35,7 +34,6 @@ async function main() {
   }
 
   const claudeVersion = getClaudeVersion(claudePath)
-  const maxTurns = getArg('max-turns', DEFAULT_MAX_TURNS)
   // 打ち間違いはここで落とす。Worker 側は無効値を黙って捨てるが、セットアップ時は
   // 意図と違う effort でデプロイされる方が困る。
   const effort = getArg('effort')
@@ -77,7 +75,7 @@ async function main() {
     log('Local D1 migrations checked.')
     await uploadCapturedTemplate(captured.headers, captured.bodyText, '--local')
     log('Seeded the captured request template into local D1.')
-    const devVarsPath = writeLocalSetupDevVars({ token, model, maxTurns, effort })
+    const devVarsPath = writeLocalSetupDevVars({ token, model, effort })
     log(`Wrote Claude OAuth vars to ${devVarsPath}. Restart the dev server to pick them up.`)
   } else if (args['write-dev-vars']) {
     const devVarsPath = writeDevVarsToken(token)
@@ -98,7 +96,7 @@ async function main() {
 
   const deployOutput = args['skip-deploy']
     ? ''
-    : await deployWorker({ model, maxTurns, effort })
+    : await deployWorker({ model, effort })
 
   await runWrangler(withWorkerEnv(['secret', 'put', 'ANTHROPIC_OAUTH_TOKEN']), {
     input: `${token}\n`,
@@ -317,12 +315,11 @@ function writeDevVarsToken(token, target = getArg('write-dev-vars', '.dev.vars')
 // Local dev has no `wrangler deploy --var` step, so the vars deployWorker() passes
 // have to be mirrored into .dev.vars or the Worker falls back to the default
 // request shape, which Anthropic does not accept for every model.
-function writeLocalSetupDevVars({ token, model, maxTurns, effort }) {
+function writeLocalSetupDevVars({ token, model, effort }) {
   const entries = {
     CHAT_API_PROVIDER: 'claude-oauth',
     [DEV_VARS_TOKEN_KEY]: token,
     ANTHROPIC_MODEL: model,
-    CLAUDE_MAX_TURNS: maxTurns,
     ANTHROPIC_REASONING_EFFORT: effort,
   }
   return writeDevVars(entries, getArg('local-setup', '.dev.vars'))
@@ -1090,7 +1087,7 @@ function redact(text, values = []) {
   return result
 }
 
-async function deployWorker({ model, maxTurns, effort }) {
+async function deployWorker({ model, effort }) {
   // The Vite plugin flattens wrangler.jsonc to one environment at build time, so the
   // environment has to be picked here rather than with --env on the deploy alone.
   await runProcess('npm', ['run', 'build'], { env: workerEnv() ? { CLOUDFLARE_ENV: workerEnv() } : {} })
@@ -1101,8 +1098,6 @@ async function deployWorker({ model, maxTurns, effort }) {
     'CHAT_API_PROVIDER:claude-oauth',
     '--var',
     `ANTHROPIC_MODEL:${model}`,
-    '--var',
-    `CLAUDE_MAX_TURNS:${maxTurns}`,
   ]
   // 未指定なら変数自体を渡さない。Worker が effort を送らず API 既定 (high) になる。
   if (effort) {

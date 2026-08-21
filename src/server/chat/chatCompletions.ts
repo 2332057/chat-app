@@ -5,8 +5,7 @@ import type { AppToolCall } from './toolCalls'
 import { EmptyReplyError } from './types'
 import type { ChatProviderContext, ChatProviderResult } from './types'
 import { stripHtmlComments } from './sanitize'
-
-const MAX_TOOL_ROUNDS = 3
+import { MAX_TOOL_ROUNDS } from './config'
 
 export async function runChatCompletionsChat(ctx: ChatProviderContext): Promise<ChatProviderResult> {
   const { client, db, threadId, model, maxTokens, reasoningEffort } = ctx

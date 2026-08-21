@@ -21,7 +21,6 @@ type Bindings = {
   CLAUDE_CODE_OAUTH_TOKEN?: string
   ANTHROPIC_BASE_URL?: string
   ANTHROPIC_MODEL?: string
-  CLAUDE_MAX_TURNS?: string
   ANTHROPIC_REASONING_EFFORT?: string
   GOOGLE_CLIENT_ID: string
   GOOGLE_CLIENT_SECRET: string
