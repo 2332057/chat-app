@@ -64,6 +64,7 @@ npx wrangler secret put GOOGLE_CLIENT_ID --env <a|b>
 npx wrangler secret put GOOGLE_CLIENT_SECRET --env <a|b>
 npx wrangler secret put ALLOWED_GOOGLE_DOMAIN --env <a|b>
 npx wrangler secret put OPENAI_API_KEY --env b   # b のみ
+npx wrangler secret put ADMIN_EMAILS --env <a|b>  # 任意
 ```
 
 `OPENAI_API_KEY` に入れるのは、OpenAI の `sk-...` ではなく **Cloudflare AI Gateway
@@ -72,6 +73,13 @@ npx wrangler secret put OPENAI_API_KEY --env b   # b のみ
 ゲートウェイが `401 [{"code":2009,"message":"Unauthorized"}]` を返す。
 
 `a` の `ANTHROPIC_OAUTH_TOKEN` はヘルパーが自動で登録する。
+
+`ADMIN_EMAILS` は管理者のメールアドレスをカンマ区切りで並べたもの
+（例: `alice@example.com,bob@example.com`）。ここに載ったユーザーは画面上部に
+「ユーザー」選択欄が出て、他ユーザーのチャットを閲覧できる。詳細は下記
+「管理者による他ユーザーのチャット閲覧」の節を参照。**未設定なら管理者は0人**で、
+全員が自分のチャットしか見られない従来どおりの挙動になる。値は環境ごとに登録が
+必要で、`--env` を付け忘れるとトップレベルの Worker に入って効かない。
 
 Google Cloud Console の OAuth クライアントには、Worker ごとにリダイレクト URI を
 追加すること（`https://<worker>.workers.dev/auth/callback`）。
@@ -212,3 +220,23 @@ Create dummy data:
 ```sh
 npx wrangler d1 execute chat-app --local --command="INSERT INTO users (id, name) VALUES (1, 'Test User');"
 ```
+
+## 管理者による他ユーザーのチャット閲覧
+
+`ADMIN_EMAILS`（シークレット）に載っているユーザーには、ヘッダーの「チャット」
+選択欄の左に「ユーザー」選択欄が出る。ここで対象を選ぶと、そのユーザーのチャットと
+ノートを閲覧できる。管理者以外にはこの選択欄自体が描画されない。
+
+- **読み取り専用**。他ユーザーを選んでいる間は入力欄が注記に差し替わり、
+  新規・編集・削除ボタンも無効になる。サーバー側でも `POST /api/chat` と
+  `PATCH` / `DELETE /api/threads/:id` はログイン中の `user_id` でしか
+  対象を引かないため、API を直接叩いても他人のスレッドは書き換えられない。
+- **削除済みも表示**。管理者がユーザー選択欄を使っている間（自分を選んでいる
+  ときも含む）は論理削除済みのスレッドも一覧に出て、題名に「（削除済み）」が付く。
+- 管理者が**自分の**削除済みスレッドを開いたときも読み取り専用になる。サーバーは
+  `deleted_at IS NULL` の行しか更新しないため、送信・編集・削除はどれも 404 になる。
+- 閲覧対象は `GET /api/threads` と `GET /api/threads/:id` の `userId` クエリで
+  指定する。**管理者以外がこのクエリを付けても完全に無視され**、必ず自分自身の
+  スレッドが返る（`src/server/admin.ts` と `resolveViewUserId`）。
+
+DB スキーマの変更は不要。
