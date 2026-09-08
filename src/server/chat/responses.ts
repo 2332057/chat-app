@@ -5,6 +5,7 @@ import type { AppToolCall } from './toolCalls'
 import { EmptyReplyError } from './types'
 import type { ChatProviderContext, ChatProviderResult } from './types'
 import { stripHtmlComments } from './sanitize'
+import { MAX_TOOL_ROUNDS } from './config'
 
 // Responses API の履歴の渡し方をハードコードで切り替える。
 // - 'previous_response_id': サーバ側に状態を持たせ、直前の response_id だけ渡す
@@ -12,8 +13,6 @@ import { stripHtmlComments } from './sanitize'
 // この組織は Zero Data Retention のため OpenAI 側に応答を保持できず、previous_response_id を
 // 送ると 400 (unsupported_parameter) になる。ZDR を解除しない限り input_history しか使えない。
 const RESPONSES_HISTORY_MODE: 'previous_response_id' | 'input_history' = 'input_history'
-
-const MAX_TOOL_ROUNDS = 3
 
 // DBの messages 履歴を Responses の input items 配列へ変換する。
 // ツールターン行は function_call + function_call_output に展開する。

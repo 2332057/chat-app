@@ -40,3 +40,14 @@
   flex: 0 0 auto;
   padding: 0 0.5rem 0.5rem;
 }
+
+/* 他ユーザー閲覧中に入力欄と入れ替えて出す注記 */
+.read_only {
+  margin: 0;
+  padding: 0.75rem;
+  border: 1px dashed #ccc;
+  border-radius: 0.5rem;
+  color: #666;
+  font-size: 0.9rem;
+  text-align: center;
+}

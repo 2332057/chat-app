@@ -5,13 +5,13 @@ import type { AppToolCall } from './toolCalls'
 import { EmptyReplyError } from './types'
 import type { ChatProviderContext, ChatProviderResult } from './types'
 import { tools } from '../../tools'
+import { MAX_TOOL_ROUNDS } from './config'
 import { buildCapturedOAuthBody } from './claudeOAuthShape'
 import type { AnthropicMessage, ClaudeOAuthTemplate } from './claudeOAuthShape'
 import { stripHtmlComments } from './sanitize'
 
 const CLAUDE_OAUTH_RESPONSE_PREFIX = 'claude-oauth:'
 const DEFAULT_ANTHROPIC_BASE_URL = 'https://api.anthropic.com'
-const DEFAULT_MAX_TOOL_ROUNDS = 3
 
 type AnthropicContentBlock = Record<string, unknown> & {
   type?: string
@@ -130,6 +130,7 @@ async function createAnthropicMessage(ctx: ChatProviderContext, messages: Anthro
     allowTools,
     systemInstructions: SYSTEM_INSTRUCTIONS,
     tools,
+    effort: ctx.anthropic?.reasoningEffort,
   })
 
   const requestBody = JSON.stringify(body)
@@ -190,7 +191,6 @@ async function loadClaudeOAuthTemplate(ctx: ChatProviderContext): Promise<Claude
 
 export async function runClaudeOAuthChat(ctx: ChatProviderContext): Promise<ChatProviderResult> {
   const { db, threadId, model } = ctx
-  const maxToolRounds = ctx.anthropic?.maxTurns ?? DEFAULT_MAX_TOOL_ROUNDS
   const result: ChatProviderResult = {
     messages: [],
     notes: [],
@@ -201,7 +201,7 @@ export async function runClaudeOAuthChat(ctx: ChatProviderContext): Promise<Chat
   logTiming('d1_message_history', { ms: elapsed(historyStart), messages: messages.length })
   let response = await createAnthropicMessage(ctx, messages, true)
 
-  for (let round = 0; round < maxToolRounds; round++) {
+  for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     const appCalls = extractToolCalls(response)
     if (appCalls.length === 0) {
       break
@@ -244,7 +244,7 @@ export async function runClaudeOAuthChat(ctx: ChatProviderContext): Promise<Chat
       })),
     })
 
-    response = await createAnthropicMessage(ctx, messages, round < maxToolRounds - 1)
+    response = await createAnthropicMessage(ctx, messages, round < MAX_TOOL_ROUNDS - 1)
   }
 
   const reply = extractReply(response)

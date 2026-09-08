@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import styles from './Layout.module.css'
 
-type AuthUser = { id: number; name: string; email: string }
+export type AuthUser = { id: number; name: string; email: string; isAdmin: boolean }
 
 /**
  * ヘッダー中央の差し込み口。ページ固有のコントロール(Home のスレッド選択など)を
@@ -13,6 +13,11 @@ type AuthUser = { id: number; name: string; email: string }
 const HeaderSlotContext = createContext<HTMLElement | null>(null)
 
 export const useHeaderSlot = () => useContext(HeaderSlotContext)
+
+/** ログイン中のユーザー。Layout がガードしている中でだけ描画されるので null にはならない。 */
+const AuthUserContext = createContext<AuthUser | null>(null)
+
+export const useAuthUser = () => useContext(AuthUserContext)
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null)
@@ -76,7 +81,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           ログアウト
         </button>
       </header>
-      <HeaderSlotContext.Provider value={slot}>{children}</HeaderSlotContext.Provider>
+      <AuthUserContext.Provider value={user}>
+        <HeaderSlotContext.Provider value={slot}>{children}</HeaderSlotContext.Provider>
+      </AuthUserContext.Provider>
     </div>
   )
 }

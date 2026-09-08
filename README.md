@@ -20,8 +20,11 @@ OPENAI_BASE_URL=https://your.gateway.here/compat
 OPENAI_MODEL=your-model-here
 CHAT_API_PROVIDER=responses / chat-completions
 OPENAI_MAX_TOKENS=30000
-OPENAI_REASONING_EFFORT=high
 ```
+
+`OPENAI_REASONING_EFFORT`（`none` / `low` / `medium` / `high` / `xhigh` / `max`）は任意。
+未設定なら `reasoning` を送らず OpenAI 側の既定（`medium`）になる。Claude 側の
+`ANTHROPIC_REASONING_EFFORT` も同じ方式で、未設定なら既定の `high`。
 
 ## デプロイ構成
 
@@ -61,6 +64,7 @@ npx wrangler secret put GOOGLE_CLIENT_ID --env <a|b>
 npx wrangler secret put GOOGLE_CLIENT_SECRET --env <a|b>
 npx wrangler secret put ALLOWED_GOOGLE_DOMAIN --env <a|b>
 npx wrangler secret put OPENAI_API_KEY --env b   # b のみ
+npx wrangler secret put ADMIN_EMAILS --env <a|b>  # 任意
 ```
 
 `OPENAI_API_KEY` に入れるのは、OpenAI の `sk-...` ではなく **Cloudflare AI Gateway
@@ -69,6 +73,13 @@ npx wrangler secret put OPENAI_API_KEY --env b   # b のみ
 ゲートウェイが `401 [{"code":2009,"message":"Unauthorized"}]` を返す。
 
 `a` の `ANTHROPIC_OAUTH_TOKEN` はヘルパーが自動で登録する。
+
+`ADMIN_EMAILS` は管理者のメールアドレスをカンマ区切りで並べたもの
+（例: `alice@example.com,bob@example.com`）。ここに載ったユーザーは画面上部に
+「ユーザー」選択欄が出て、他ユーザーのチャットを閲覧できる。詳細は下記
+「管理者による他ユーザーのチャット閲覧」の節を参照。**未設定なら管理者は0人**で、
+全員が自分のチャットしか見られない従来どおりの挙動になる。値は環境ごとに登録が
+必要で、`--env` を付け忘れるとトップレベルの Worker に入って効かない。
 
 Google Cloud Console の OAuth クライアントには、Worker ごとにリダイレクト URI を
 追加すること（`https://<worker>.workers.dev/auth/callback`）。
@@ -132,6 +143,17 @@ OpenAI プロバイダのままになることがある。
 既定のモデルはレイテンシ重視で `claude-haiku-4-5`。変更するにはヘルパーに
 `--model` を渡すか、Worker 環境で `ANTHROPIC_MODEL` を設定する。
 
+推論の深さ（`output_config.effort`）は `--effort` または Worker 環境の
+`ANTHROPIC_REASONING_EFFORT` で変える。`low` / `medium` / `high` / `xhigh` / `max`。
+
+**未設定なら `output_config.effort` を送らない**（API 既定の `high` になる）。捕捉した
+Claude Code のリクエストには Claude Code 自身の effort が入っているので、環境変数が
+無いときはそれも消して送る。残すと捕捉時の Claude Code 設定に引きずられる。
+
+ヘルパーは範囲外の値でエラー終了するが、Worker は無効値を捨てて（= 送らない）
+リクエスト自体は通す。`xhigh` / `max` を使う場合は `max_tokens` に余裕が必要だが、
+これは捕捉テンプレートの値をそのまま使っている。
+
 Cloudflare を変更せずに認証とヘッダ捕捉だけ確認する場合:
 
 ```sh
@@ -150,7 +172,8 @@ node scripts/claude-oauth-cloudflare.mjs --local-setup
 これはローカル D1 にマイグレーションを適用し、捕捉した
 リクエストテンプレートをローカル D1 の `claude_oauth_template` に入れ、デプロイ時に
 `--var` で渡しているのと同じ変数（`CHAT_API_PROVIDER`、`ANTHROPIC_OAUTH_TOKEN`、
-`ANTHROPIC_MODEL`、`ANTHROPIC_BETA`、`CLAUDE_CODE_USER_AGENT`、`CLAUDE_CODE_X_APP`、
+`ANTHROPIC_MODEL`、`ANTHROPIC_REASONING_EFFORT`、`ANTHROPIC_BETA`、
+`CLAUDE_CODE_USER_AGENT`、`CLAUDE_CODE_X_APP`、
 `CLAUDE_OAUTH_TEMPLATE_SOURCE=d1` など）を `.dev.vars` に書き込む。既存の行は
 キー単位で上書きし、無関係な行は残す。書き込み後は dev サーバを再起動する。
 
@@ -197,3 +220,23 @@ Create dummy data:
 ```sh
 npx wrangler d1 execute chat-app --local --command="INSERT INTO users (id, name) VALUES (1, 'Test User');"
 ```
+
+## 管理者による他ユーザーのチャット閲覧
+
+`ADMIN_EMAILS`（シークレット）に載っているユーザーには、ヘッダーの「チャット」
+選択欄の左に「ユーザー」選択欄が出る。ここで対象を選ぶと、そのユーザーのチャットと
+ノートを閲覧できる。管理者以外にはこの選択欄自体が描画されない。
+
+- **読み取り専用**。他ユーザーを選んでいる間は入力欄が注記に差し替わり、
+  新規・編集・削除ボタンも無効になる。サーバー側でも `POST /api/chat` と
+  `PATCH` / `DELETE /api/threads/:id` はログイン中の `user_id` でしか
+  対象を引かないため、API を直接叩いても他人のスレッドは書き換えられない。
+- **削除済みも表示**。管理者がユーザー選択欄を使っている間（自分を選んでいる
+  ときも含む）は論理削除済みのスレッドも一覧に出て、題名に「（削除済み）」が付く。
+- 管理者が**自分の**削除済みスレッドを開いたときも読み取り専用になる。サーバーは
+  `deleted_at IS NULL` の行しか更新しないため、送信・編集・削除はどれも 404 になる。
+- 閲覧対象は `GET /api/threads` と `GET /api/threads/:id` の `userId` クエリで
+  指定する。**管理者以外がこのクエリを付けても完全に無視され**、必ず自分自身の
+  スレッドが返る（`src/server/admin.ts` と `resolveViewUserId`）。
+
+DB スキーマの変更は不要。

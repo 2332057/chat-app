@@ -1,6 +1,7 @@
 /** @jsxImportSource hono/jsx */
 
 import { Hono } from 'hono'
+import type { Context } from 'hono'
 import { Link, Script, ViteClient } from 'vite-ssr-components/hono'
 import OpenAI from 'openai'
 import type { D1Database } from '@cloudflare/workers-types'
@@ -8,6 +9,7 @@ import { runChat, resolveChatProvider, resolveChatClientConfig, EmptyReplyError,
 import type { ChatRequestBody, ChatThreadRecord } from './server/chat'
 import authRoutes from './server/authRoutes'
 import { requireAuth, requireSameOrigin } from './server/middleware'
+import { isAdminEmail } from './server/admin'
 import type { AuthUser } from './server/auth'
 
 type Bindings = {
@@ -21,10 +23,12 @@ type Bindings = {
   CLAUDE_CODE_OAUTH_TOKEN?: string
   ANTHROPIC_BASE_URL?: string
   ANTHROPIC_MODEL?: string
-  CLAUDE_MAX_TURNS?: string
+  ANTHROPIC_REASONING_EFFORT?: string
   GOOGLE_CLIENT_ID: string
   GOOGLE_CLIENT_SECRET: string
   ALLOWED_GOOGLE_DOMAIN: string
+  // カンマ区切りの管理者メールアドレス。シークレットとして登録する。
+  ADMIN_EMAILS?: string
   DB: D1Database
 }
 
@@ -41,12 +45,65 @@ app.route('/auth', authRoutes)
 app.use('/api/*', requireSameOrigin)
 app.use('/api/*', requireAuth)
 
-app.get('/api/me', (c) => c.json({ user: c.get('user') }))
+app.get('/api/me', (c) => {
+  const user = c.get('user')
+  return c.json({ user: { ...user, isAdmin: isAdminEmail(user.email, c.env.ADMIN_EMAILS) } })
+})
+
+/**
+ * 管理者が他ユーザーのチャットを閲覧するための、閲覧対象ユーザー ID を解決する。
+ * 管理者でなければ userId クエリは完全に無視し、必ず自分自身を返す。
+ * ここが権限昇格の入口になるので、呼び出し側で自前に userId を読まないこと。
+ */
+const resolveViewUserId = (c: Context<{ Bindings: Bindings; Variables: Variables }>) => {
+  const self = c.get('user')
+  if (!isAdminEmail(self.email, c.env.ADMIN_EMAILS)) {
+    return { userId: self.id, impersonating: false }
+  }
+
+  const raw = c.req.query('userId')
+  if (!raw) {
+    return { userId: self.id, impersonating: false }
+  }
+
+  const userId = Number(raw)
+  if (!Number.isInteger(userId) || userId <= 0) {
+    return { userId: self.id, impersonating: false }
+  }
+
+  // 管理者が明示的にユーザーを選んでいる間は、自分自身を選んでいても
+  // 削除済みを含めた一覧を返す(impersonating = true)。
+  return { userId, impersonating: true }
+}
+
+// 管理者専用。ユーザー選択欄の選択肢を返す。
+app.get('/api/users', async (c) => {
+  const self = c.get('user')
+  if (!isAdminEmail(self.email, c.env.ADMIN_EMAILS)) {
+    return c.json({ error: '権限がありません。' }, 403)
+  }
+
+  try {
+    const { results } = await c.env.DB.prepare('SELECT id, name, email FROM users ORDER BY name ASC, id ASC').all()
+    return c.json({ users: results })
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: 'ユーザーの取得に失敗しました。' }, 500)
+  }
+})
 
 app.get('/api/threads', async (c) => {
   try {
-    const { results } = await c.env.DB.prepare('SELECT id, title FROM threads WHERE user_id = ? AND deleted_at IS NULL ORDER BY updated_at DESC')
-      .bind(c.get('user').id)
+    const { userId, impersonating } = resolveViewUserId(c)
+
+    // 管理者がユーザーを選んで閲覧している間は削除済みも出す。
+    // 削除済みかどうかはクライアントがラベルで区別できるよう deleted_at を返す。
+    const { results } = await c.env.DB.prepare(
+      impersonating
+        ? 'SELECT id, title, deleted_at FROM threads WHERE user_id = ? ORDER BY updated_at DESC'
+        : 'SELECT id, title FROM threads WHERE user_id = ? AND deleted_at IS NULL ORDER BY updated_at DESC',
+    )
+      .bind(userId)
       .all()
     return c.json({ threads: results })
   } catch (error) {
@@ -74,10 +131,16 @@ app.post('/api/threads', async (c) => {
 app.get('/api/threads/:id', async (c) => {
   try {
     const threadId = c.req.param('id')
+    const { userId, impersonating } = resolveViewUserId(c)
 
     const [threadResult, messagesResult, notesResult] = await c.env.DB.batch([
       // user_id で必ず絞る。ここを thread_id だけにすると他人のスレッドを ID 推測で読める。
-      c.env.DB.prepare('SELECT * FROM threads WHERE id = ? AND user_id = ? AND deleted_at IS NULL').bind(threadId, c.get('user').id),
+      // userId は resolveViewUserId が返した値で、管理者以外は必ず自分自身になる。
+      c.env.DB.prepare(
+        impersonating
+          ? 'SELECT * FROM threads WHERE id = ? AND user_id = ?'
+          : 'SELECT * FROM threads WHERE id = ? AND user_id = ? AND deleted_at IS NULL',
+      ).bind(threadId, userId),
       c.env.DB.prepare('SELECT * FROM messages WHERE thread_id = ? ORDER BY created_at ASC, id ASC').bind(threadId),
       c.env.DB.prepare('SELECT * FROM notes WHERE thread_id = ? ORDER BY created_at ASC, id ASC').bind(threadId),
     ])

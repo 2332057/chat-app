@@ -1,6 +1,10 @@
 export const MODEL = 'gpt-5.5'
 export const ANTHROPIC_MODEL = 'claude-haiku-4-5'
 
+// アプリ側のツール往復の上限。Anthropic / OpenAI どちらのパラメータでもなく
+// このアプリのエージェントループの打ち切り回数なので、プロバイダ共通で持つ。
+export const MAX_TOOL_ROUNDS = 3
+
 export type OpenAIChatProvider = 'responses' | 'chat-completions'
 export type ChatApiProvider = OpenAIChatProvider | 'claude-oauth'
 
@@ -19,7 +23,7 @@ export type ChatClientConfig = {
     oauthToken?: string
     baseURL?: string
     model?: string
-    maxTurns?: number
+    reasoningEffort?: string
   }
 }
 
@@ -33,7 +37,7 @@ export function resolveChatClientConfig(env: {
   CLAUDE_CODE_OAUTH_TOKEN?: string
   ANTHROPIC_BASE_URL?: string
   ANTHROPIC_MODEL?: string
-  CLAUDE_MAX_TURNS?: string
+  ANTHROPIC_REASONING_EFFORT?: string
 }): ChatClientConfig {
   return {
     apiKey: env.OPENAI_API_KEY,
@@ -45,7 +49,7 @@ export function resolveChatClientConfig(env: {
       oauthToken: env.ANTHROPIC_OAUTH_TOKEN ?? env.CLAUDE_CODE_OAUTH_TOKEN,
       baseURL: env.ANTHROPIC_BASE_URL,
       model: env.ANTHROPIC_MODEL ?? ANTHROPIC_MODEL,
-      maxTurns: env.CLAUDE_MAX_TURNS ? Number(env.CLAUDE_MAX_TURNS) : undefined,
+      reasoningEffort: env.ANTHROPIC_REASONING_EFFORT || undefined,
     },
   }
 }

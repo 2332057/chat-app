@@ -8,10 +8,9 @@ import path from 'node:path'
 import tls from 'node:tls'
 import { pathToFileURL } from 'node:url'
 
-const DEFAULT_MAX_TURNS = '3'
-// src/server/chat/claudeOAuthShape.ts の REASONING_EFFORT と一致させること。
-// ずれるとテストの形状比較が落ちる。
-const REASONING_EFFORT = 'high'
+// src/server/chat/claudeOAuthShape.ts の同名定数と一致させること。
+// ずれるとテストの形状比較が落ちる。--effort 未指定なら effort は送らず API 既定に任せる。
+const REASONING_EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max']
 const DEFAULT_MODEL = 'claude-haiku-4-5'
 const DEV_VARS_TOKEN_KEY = 'ANTHROPIC_OAUTH_TOKEN'
 const APP_PROBE_PROMPT =
@@ -35,7 +34,12 @@ async function main() {
   }
 
   const claudeVersion = getClaudeVersion(claudePath)
-  const maxTurns = getArg('max-turns', DEFAULT_MAX_TURNS)
+  // 打ち間違いはここで落とす。Worker 側は無効値を黙って捨てるが、セットアップ時は
+  // 意図と違う effort でデプロイされる方が困る。
+  const effort = getArg('effort')
+  if (effort !== undefined && !REASONING_EFFORT_LEVELS.includes(effort)) {
+    fail(`--effort must be one of ${REASONING_EFFORT_LEVELS.join(', ')}. Got: ${effort}`)
+  }
 
   log(`Claude Code: ${claudeVersion}`)
   await ensureClaudeLogin(claudePath)
@@ -61,7 +65,7 @@ async function main() {
   }
 
   if (!args['skip-app-probe']) {
-    await localAppShapeProbe(token, captured.headers, model, captured.bodyText)
+    await localAppShapeProbe(token, captured.headers, model, captured.bodyText, effort)
     log('Local app-shaped OAuth probe passed.')
   }
 
@@ -71,7 +75,7 @@ async function main() {
     log('Local D1 migrations checked.')
     await uploadCapturedTemplate(captured.headers, captured.bodyText, '--local')
     log('Seeded the captured request template into local D1.')
-    const devVarsPath = writeLocalSetupDevVars({ token, model, maxTurns })
+    const devVarsPath = writeLocalSetupDevVars({ token, model, effort })
     log(`Wrote Claude OAuth vars to ${devVarsPath}. Restart the dev server to pick them up.`)
   } else if (args['write-dev-vars']) {
     const devVarsPath = writeDevVarsToken(token)
@@ -92,7 +96,7 @@ async function main() {
 
   const deployOutput = args['skip-deploy']
     ? ''
-    : await deployWorker({ model, maxTurns })
+    : await deployWorker({ model, effort })
 
   await runWrangler(withWorkerEnv(['secret', 'put', 'ANTHROPIC_OAUTH_TOKEN']), {
     input: `${token}\n`,
@@ -311,12 +315,12 @@ function writeDevVarsToken(token, target = getArg('write-dev-vars', '.dev.vars')
 // Local dev has no `wrangler deploy --var` step, so the vars deployWorker() passes
 // have to be mirrored into .dev.vars or the Worker falls back to the default
 // request shape, which Anthropic does not accept for every model.
-function writeLocalSetupDevVars({ token, model, maxTurns }) {
+function writeLocalSetupDevVars({ token, model, effort }) {
   const entries = {
     CHAT_API_PROVIDER: 'claude-oauth',
     [DEV_VARS_TOKEN_KEY]: token,
     ANTHROPIC_MODEL: model,
-    CLAUDE_MAX_TURNS: maxTurns,
+    ANTHROPIC_REASONING_EFFORT: effort,
   }
   return writeDevVars(entries, getArg('local-setup', '.dev.vars'))
 }
@@ -780,11 +784,11 @@ function exactReplayHeaders(headers) {
   return result
 }
 
-async function localAppShapeProbe(token, capturedHeaders, model, capturedBodyText) {
+async function localAppShapeProbe(token, capturedHeaders, model, capturedBodyText, effort) {
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: buildOAuthHeaders(token, capturedHeaders),
-    body: JSON.stringify(buildAppBodyFromCapturedEnvelope(capturedBodyText, model, APP_PROBE_PROMPT)),
+    body: JSON.stringify(buildAppBodyFromCapturedEnvelope(capturedBodyText, model, APP_PROBE_PROMPT, effort)),
   })
   const payload = await assertAnthropicOk(response, 'Local app-shaped OAuth probe')
   const content = Array.isArray(payload.content) ? payload.content : []
@@ -834,14 +838,34 @@ function shouldForwardCapturedHeader(name, value) {
   )
 }
 
-function buildAppBodyFromCapturedEnvelope(capturedBodyText, model, prompt) {
+// src/server/chat/claudeOAuthShape.ts の同名関数と同じ挙動にすること。
+function resolveReasoningEffort(value) {
+  const normalized = String(value ?? '')
+    .trim()
+    .toLowerCase()
+  return REASONING_EFFORT_LEVELS.includes(normalized) ? normalized : undefined
+}
+
+function buildAppBodyFromCapturedEnvelope(capturedBodyText, model, prompt, effort) {
   const body = parseJson(capturedBodyText)
   if (!body) {
     fail('Cannot build an app-shaped request without a captured Claude request body.')
   }
   body.model = model
   body.stream = false
-  body.output_config = { ...(typeof body.output_config === 'object' && body.output_config ? body.output_config : {}), effort: REASONING_EFFORT }
+  // effort 未指定なら捕捉した Claude Code の値ごと落とす。Worker 側と同じ形にすること。
+  const outputConfig = { ...(typeof body.output_config === 'object' && body.output_config ? body.output_config : {}) }
+  const resolvedEffort = resolveReasoningEffort(effort)
+  if (resolvedEffort) {
+    outputConfig.effort = resolvedEffort
+  } else {
+    delete outputConfig.effort
+  }
+  if (Object.keys(outputConfig).length) {
+    body.output_config = outputConfig
+  } else {
+    delete body.output_config
+  }
   delete body.fallbacks
   delete body.context_management
   appendTopLevelSystem(body, readAppInstructions())
@@ -1063,7 +1087,7 @@ function redact(text, values = []) {
   return result
 }
 
-async function deployWorker({ model, maxTurns }) {
+async function deployWorker({ model, effort }) {
   // The Vite plugin flattens wrangler.jsonc to one environment at build time, so the
   // environment has to be picked here rather than with --env on the deploy alone.
   await runProcess('npm', ['run', 'build'], { env: workerEnv() ? { CLOUDFLARE_ENV: workerEnv() } : {} })
@@ -1074,9 +1098,11 @@ async function deployWorker({ model, maxTurns }) {
     'CHAT_API_PROVIDER:claude-oauth',
     '--var',
     `ANTHROPIC_MODEL:${model}`,
-    '--var',
-    `CLAUDE_MAX_TURNS:${maxTurns}`,
   ]
+  // 未指定なら変数自体を渡さない。Worker が effort を送らず API 既定 (high) になる。
+  if (effort) {
+    argv.push('--var', `ANTHROPIC_REASONING_EFFORT:${effort}`)
+  }
   const output = await runWrangler(withWorkerEnv(argv))
   log('Worker deployed with Claude OAuth vars.')
   return output
@@ -1092,6 +1118,8 @@ function sleep(ms) {
 }
 
 export {
+  REASONING_EFFORT_LEVELS,
+  resolveReasoningEffort,
   buildAppBodyFromCapturedEnvelope,
   capturedRequestHeaders,
   exactReplayHeaders,

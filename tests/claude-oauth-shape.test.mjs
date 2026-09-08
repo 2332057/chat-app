@@ -8,6 +8,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import * as ts from 'typescript'
 
 import {
+  REASONING_EFFORT_LEVELS,
+  resolveReasoningEffort,
   buildAppBodyFromCapturedEnvelope,
   capturedRequestHeaders,
   exactReplayHeaders,
@@ -29,7 +31,7 @@ test('script and Worker shape builders produce the same captured-envelope app bo
   const systemInstructions = await readFile(path.join(repoRoot, 'src', 'instructions.md'), 'utf8')
   const toolDefinitions = JSON.parse(await readFile(path.join(repoRoot, 'src', 'tools.json'), 'utf8'))
 
-  const scriptBody = buildAppBodyFromCapturedEnvelope(JSON.stringify(captured), model, prompt)
+  const scriptBody = buildAppBodyFromCapturedEnvelope(JSON.stringify(captured), model, prompt, 'xhigh')
   const workerBody = shape.buildCapturedOAuthBody({
     templateBody: captured,
     model,
@@ -37,15 +39,16 @@ test('script and Worker shape builders produce the same captured-envelope app bo
     allowTools: true,
     systemInstructions,
     tools: toolDefinitions,
+    effort: 'xhigh',
   })
 
   assert.deepEqual(scriptBody, workerBody)
   assert.equal(scriptBody.system.at(-2).text, captured.system.at(-1).text)
   assert.equal(scriptBody.system.at(-1).text, systemInstructions)
   assert.equal(scriptBody.stream, false)
-  // 推論は捕捉した thinking 設定を活かし、effort だけ OpenAI 側と揃える。
+  // 推論は捕捉した thinking 設定を活かし、effort だけ環境変数で差し替える。
   assert.deepEqual(scriptBody.thinking, captured.thinking)
-  assert.equal(scriptBody.output_config.effort, 'high')
+  assert.equal(scriptBody.output_config.effort, 'xhigh')
   assert.equal(scriptBody.max_tokens, captured.max_tokens)
   assert.equal('fallbacks' in scriptBody, false)
   assert.equal('context_management' in scriptBody, false)
@@ -55,6 +58,84 @@ test('script and Worker shape builders produce the same captured-envelope app bo
   assert.deepEqual(scriptBody.messages.at(-1), { role: 'user', content: prompt })
   assert.equal(scriptBody.tools[0].input_schema.$schema, 'https://json-schema.org/draft/2020-12/schema')
   assert.equal(scriptBody.tools.at(-1).cache_control.type, 'ephemeral')
+})
+
+test('script and Worker resolve reasoning effort identically', async () => {
+  const shape = await shapeModulePromise
+
+  assert.deepEqual(REASONING_EFFORT_LEVELS, shape.REASONING_EFFORT_LEVELS)
+  for (const value of [...REASONING_EFFORT_LEVELS, ' XHIGH ', 'ultra', '', undefined, null]) {
+    assert.equal(resolveReasoningEffort(value), shape.resolveReasoningEffort(value), `effort: ${String(value)}`)
+  }
+})
+
+test('reasoning effort is dropped unless the value is an allowed level', async () => {
+  const shape = await shapeModulePromise
+  const captured = capturedBodyFixture()
+  const buildBoth = (effort) => {
+    const workerBody = shape.buildCapturedOAuthBody({
+      templateBody: captured,
+      model: 'claude-fable-5',
+      messages: [{ role: 'user', content: 'hi' }],
+      allowTools: false,
+      systemInstructions: 'app instructions',
+      tools: [],
+      effort,
+    })
+    const scriptBody = buildAppBodyFromCapturedEnvelope(JSON.stringify(captured), 'claude-fable-5', 'hi', effort)
+    return { workerBody, scriptBody }
+  }
+
+  for (const level of shape.REASONING_EFFORT_LEVELS) {
+    assert.equal(shape.resolveReasoningEffort(level), level)
+  }
+  assert.equal(shape.resolveReasoningEffort(' XHIGH '), 'xhigh')
+  for (const invalid of [undefined, null, '', 'ultra', 'HIGHER']) {
+    assert.equal(shape.resolveReasoningEffort(invalid), undefined)
+  }
+
+  // 捕捉テンプレートには Claude Code 自身の effort が入っている。環境変数が無いときは
+  // それを引き継がず、キーごと落として API 既定 (high) に任せる。
+  assert.equal(captured.output_config.effort, 'high')
+  for (const unset of [undefined, 'ultra']) {
+    const { workerBody, scriptBody } = buildBoth(unset)
+    assert.equal('effort' in (workerBody.output_config ?? {}), false)
+    assert.equal('effort' in (scriptBody.output_config ?? {}), false)
+  }
+
+  const raised = buildBoth('xhigh')
+  assert.equal(raised.workerBody.output_config.effort, 'xhigh')
+  assert.equal(raised.scriptBody.output_config.effort, 'xhigh')
+})
+
+test('output_config is dropped entirely when effort was its only key', async () => {
+  const shape = await shapeModulePromise
+  const captured = { ...capturedBodyFixture(), output_config: { effort: 'xhigh' } }
+  const body = shape.buildCapturedOAuthBody({
+    templateBody: captured,
+    model: 'claude-fable-5',
+    messages: [{ role: 'user', content: 'hi' }],
+    allowTools: false,
+    systemInstructions: 'app instructions',
+    tools: [],
+  })
+
+  assert.equal('output_config' in body, false)
+})
+
+test('other captured output_config keys survive when effort is dropped', async () => {
+  const shape = await shapeModulePromise
+  const captured = { ...capturedBodyFixture(), output_config: { effort: 'xhigh', task_budget: { type: 'tokens', total: 64000 } } }
+  const body = shape.buildCapturedOAuthBody({
+    templateBody: captured,
+    model: 'claude-fable-5',
+    messages: [{ role: 'user', content: 'hi' }],
+    allowTools: false,
+    systemInstructions: 'app instructions',
+    tools: [],
+  })
+
+  assert.deepEqual(body.output_config, { task_budget: { type: 'tokens', total: 64000 } })
 })
 
 test('captured-envelope builder keeps only the Claude Code context reminder from the template messages', async () => {

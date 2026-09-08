@@ -15,8 +15,14 @@ export type ClaudeOAuthTemplate = {
   body: Record<string, unknown>
 }
 
-// OPENAI_REASONING_EFFORT と揃える。片方だけ変えると条件が揃わなくなるので定数で持つ。
-export const REASONING_EFFORT = 'high'
+// output_config.effort が受け付ける段階。範囲外を送ると Anthropic が 400 を返すので、
+// 打ち間違いは undefined 扱いにしてキーごと落とす（= API 既定の high）。
+export const REASONING_EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max']
+
+export function resolveReasoningEffort(value?: string | null): string | undefined {
+  const normalized = (value ?? '').trim().toLowerCase()
+  return REASONING_EFFORT_LEVELS.includes(normalized) ? normalized : undefined
+}
 
 type BodyOptions = {
   model: string
@@ -24,6 +30,7 @@ type BodyOptions = {
   allowTools: boolean
   systemInstructions: string
   tools: ToolDefinition[]
+  effort?: string
 }
 
 type CapturedBodyOptions = BodyOptions & {
@@ -37,14 +44,29 @@ export function buildCapturedOAuthBody({
   allowTools,
   systemInstructions,
   tools,
+  effort,
 }: CapturedBodyOptions): Record<string, unknown> {
   const body = deepClone(templateBody)
   body.model = model
   body.stream = false
-  // thinking と output_config は捕捉したものを使う。OpenAI 側の reasoning effort と
-  // 揃えるため effort だけ上書きする。max_tokens も捕捉値のままにして、
-  // 出力上限を環境変数で二重管理しない。
-  body.output_config = { ...(typeof body.output_config === 'object' && body.output_config ? body.output_config : {}), effort: REASONING_EFFORT }
+  // thinking と max_tokens は捕捉したものを使う（出力上限を環境変数で二重管理しない）。
+  // effort は ANTHROPIC_REASONING_EFFORT があればそれを送り、無ければキーごと落として
+  // API 既定 (high) に任せる。捕捉テンプレートには Claude Code 自身の effort が
+  // 入っているので、残すと捕捉時の設定に引きずられる。
+  const outputConfig: Record<string, unknown> = {
+    ...(typeof body.output_config === 'object' && body.output_config ? body.output_config : {}),
+  }
+  const resolvedEffort = resolveReasoningEffort(effort)
+  if (resolvedEffort) {
+    outputConfig.effort = resolvedEffort
+  } else {
+    delete outputConfig.effort
+  }
+  if (Object.keys(outputConfig).length) {
+    body.output_config = outputConfig
+  } else {
+    delete body.output_config
+  }
   delete body.fallbacks
   delete body.context_management
   appendTopLevelSystem(body, systemInstructions)
