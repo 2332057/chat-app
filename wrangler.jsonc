@@ -3,6 +3,10 @@
   "name": "chat-app",
   "compatibility_date": "2025-08-03",
   "main": "./src/index.tsx",
+  // 実際に使うのは env の a / b だけ。ここ(トップレベル)は CLOUDFLARE_ENV を
+  // 付け忘れたビルドの受け皿になってしまうので、事故った場合に本番 D1 へ
+  // 繋がった Worker が公開 URL を持たないよう塞いでおく。
+  "preview_urls": false,
   "d1_databases": [
     {
       "binding": "DB",
