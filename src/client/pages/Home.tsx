@@ -419,7 +419,7 @@ export default function Home() {
         <div className={styles.split}>
           <div className={styles.note}>{notes.length > 0 && <Note versions={notes} />}</div>
           <div ref={messagesRef} className={styles.chat}>
-            <ChatThread {...activeThreadData} />
+            <ChatThread {...activeThreadData} showReasoning={isAdmin} />
           </div>
         </div>
         {/* チャット・ノートを横断して画面下部に置く入力欄 */}

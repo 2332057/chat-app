@@ -25,12 +25,16 @@
   margin: 0;
 }
 
-/* 推論(HTMLコメント)は既定で畳んでおく */
+/* 推論(HTMLコメント)は既定で隠し、管理者のみ表示する */
 
 .message-reasoning {
   display: none;
   margin: 16px 0;
   pointer-events: none;
+}
+.message-reasoning.message-reasoning-visible {
+  display: block;
+  pointer-events: auto;
 }
 .message-reasoning > summary {
   cursor: pointer;
